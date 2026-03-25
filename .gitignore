@@ -1,1 +1,9 @@
-*.csv
+.venv
+.DS_Store
+pycache/
+*.pyc
+.ipynb_checkpoints/
+data/external/*
+data/processed/*
+data/raw/*
+models/*

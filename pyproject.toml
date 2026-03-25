@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.26.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "megatron"
+version = "1.0.0"
+description = "Time series forecasting toolkit"
+requires-python = ">=3.13"
+license = {text = "MIT"}
+authors = [
+  {name = "Andrei Safonov", email = "andrei.saf.uk@gmail.com"}
+]
+keywords = ["timeseries", "forecasting", "python"]
+dependencies = [
+    "holidays",
+    "lightgbm",
+    "numpy",
+    "nbformat",
+    "optuna",
+    "pandas",
+    "plotly",
+    "prophet",
+    "pyarrow",
+    "pyod",
+    "ray",
+    "ruptures",
+    "scikit-learn",
+    "sktime",
+    "swifter",
+    "statsforecast",
+    "statsmodels",
+    "tslearn"
+]
+
+[project.urls]
+homepage = "https://github.com/irressaf/ts-enterprise"
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-cov",
+]
+dev = [
+    "black",
+    "ruff",
+    "ipython",
+    "ipykernel"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/megatron"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+fixable = ["ALL"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--strict-markers"
