@@ -19,6 +19,9 @@ margin, color = dict(l=30, r=30, t=50, b=30), "#1f77b4"
 
 def seriesPlot(
     data: pd.DataFrame,
+    demand: str,
+    X_exog=None,
+    exog_column=None,
     w=config.SEASONAL_PERIOD,
     n_series=1,
     title="",
@@ -91,7 +94,11 @@ def seriesPlot(
             )
 
         if od:
-            result = OutlierDetector().fit_transform(temp)  # type: ignore
+            if X_exog is not None:
+                temp = temp.join(X_exog.loc[instance], how="inner")
+            result = OutlierDetector(
+                demand=demand, exog_column=exog_column
+            ).fit_transform(temp)
             plt.add_scatter(
                 x=result.index,  # type: ignore
                 y=result.values.flatten(),  # type: ignore

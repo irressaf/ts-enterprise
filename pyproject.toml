@@ -13,7 +13,7 @@ authors = [
 ]
 keywords = ["timeseries", "forecasting", "python"]
 dependencies = [
-    "holidays",
+    "holidays==0.46",
     "lightgbm",
     "numpy",
     "nbformat",
@@ -22,15 +22,14 @@ dependencies = [
     "plotly",
     "prophet",
     "pyarrow",
+    "pycatch22",
     "pyod",
-    "ray",
     "ruptures",
     "scikit-learn",
     "sktime",
-    "swifter",
     "statsforecast",
     "statsmodels",
-    "tslearn"
+    "tqdm_joblib"
 ]
 
 [project.urls]
