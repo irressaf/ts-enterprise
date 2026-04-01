@@ -1,5 +1,6 @@
 import numpy as np
-from itertools import product
+import pandas as pd
+from feature_engine.selection import SmartCorrelatedSelection
 
 from optuna.samplers import TPESampler
 from optuna.distributions import (
@@ -8,24 +9,37 @@ from optuna.distributions import (
     CategoricalDistribution,
 )
 
-from lightgbm import LGBMClassifier, LGBMRegressor
-from sklearn.linear_model import ElasticNet
+from lightgbm import LGBMRegressor
+from sklearn.linear_model import LogisticRegression, ElasticNet
 
 
 from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.preprocessing import StandardScaler, TargetEncoder
+from sklearn.preprocessing import TargetEncoder
 from sklearn.metrics import root_mean_squared_log_error
 
 from sktime.performance_metrics.forecasting import make_forecasting_scorer
 from sktime.split import ExpandingGreedySplitter
 from sktime.forecasting.model_selection import ForecastingOptunaSearchCV
-from sktime.forecasting.compose import (
-    make_reduction,
-    MultiplexForecaster,
-    FallbackForecaster,
-)
+from sktime.forecasting.compose import MultiplexForecaster
 from sktime.transformations.series.summarize import WindowSummarizer
 from sktime.forecasting.base import BaseForecaster
+from sktime.forecasting.croston import Croston
+from sktime.forecasting.statsforecast import StatsForecastADIDA
+from sktime.forecasting.tsb import TSB
+
+from megatron.transformers.additional import (
+    b_mad,
+    b_median,
+    c_occ_last,
+    c_occ_rate,
+    c_occ_count,
+    c_non_occ_head,
+    c_non_occ_tail,
+    r_pos_last,
+    r_pos_mean,
+    r_pos_std,
+    r_pos_sum,
+)
 
 import megatron.config as config
 
@@ -34,175 +48,186 @@ rmsle = make_forecasting_scorer(root_mean_squared_log_error, name="RMSLE")
 cv = ExpandingGreedySplitter(test_size=config.FH_SIZE, folds=1)
 
 
-class GlobalModelWrapper(BaseEstimator, RegressorMixin):
-    def __init__(
-        self,
-        classifier,
-        regressor,
-        enable_target_encoding=False,
-        enable_weights=False,
-    ):
+class HurdleModel(BaseEstimator, RegressorMixin):
+    def __init__(self, classifier, regressor):
         self.classifier = classifier
         self.regressor = regressor
-        self.enable_target_encoding = enable_target_encoding
-        self.enable_weights = enable_weights
 
         super().__init__()
 
-    def _hyperbolic(self, x):
-        return (1 / x.shape[0] ** 0.5) * (1 / (1 - np.linspace(0.1, 0.99, x.shape[0])))
-
-    def fit(self, X, y, **kwargs):
+    def fit(self, X, y, sample_weight=None, **kwargs):
         self.classifier_ = clone(self.classifier)
         self.regressor_ = clone(self.regressor)
-        weights = None
+        y = y[y.columns[0]]
 
-        X = X.assign(target=y).dropna()
-        if self.enable_weights:
-            weights = np.concatenate(
-                X.groupby(X.index.names[:-1])
-                .apply(lambda x: self._hyperbolic(x[[]]))
-                .tolist()
-            )
+        cols = [
+            x
+            for x in X.columns
+            if not any(y in x for y in ["_lag_", "_b_", "_c_", "_r_"])
+        ]
+        s = X[cols].nunique()
+        self.cat_features = list(s[s.between(3, 31)].index)
 
-        s = X.apply(lambda x: x.value_counts(normalize=True).max())
-        X = X[s[s.lt(0.99)].index]
-
-        if self.enable_target_encoding:
-            s = X.drop(columns=["target"]).nunique()
-            self.c_features = list(s[s.between(3, 31)].index)
-
+        if self.cat_features:
             self.encoder = TargetEncoder(
                 smooth=1, random_state=config.SEED, target_type="continuous"
             )
-            X[self.c_features] = self.encoder.fit_transform(
-                X[self.c_features], X["target"]
-            )
+            X[self.cat_features] = self.encoder.fit_transform(X[self.cat_features], y)
 
-            self.s_features = list(s[s.gt(31)].index) + self.c_features
-            self.scaler = StandardScaler()
-            X[self.s_features] = self.scaler.fit_transform(X[self.s_features])
-
-        y = X["target"]
-        X = X.drop(columns=["target"])
-        self.features_ = list(X.columns)
-
-        self.X_train, self.y_train = X, y
-
-        self.classifier_.fit(
-            X=X, y=y.gt(0).astype(int), sample_weight=weights, **kwargs
+        temp = X[[*filter(lambda x: not x.count("_r_"), X.columns)]]
+        fs = SmartCorrelatedSelection(
+            threshold=0.5,
+            selection_method="model_performance",
+            estimator=LogisticRegression(C=np.inf),
         )
-        self.regressor_.fit(X=X[y.gt(0)], y=y[y.gt(0)], sample_weight=weights, **kwargs)
+        self.c_features = list(
+            fs.fit_transform(X=temp, y=y.gt(0).astype(int)).columns  # type: ignore
+        )
+        self.classifier_.fit(
+            X=temp[self.c_features],
+            y=y.gt(0).astype(int),
+            sample_weight=sample_weight,
+            **kwargs,
+        )
 
+        temp = X[[*filter(lambda x: not x.count("_c_"), X.columns)]][y.gt(0).values]
+        fs = SmartCorrelatedSelection(
+            threshold=0.5,
+            selection_method="model_performance",
+            estimator=ElasticNet(alpha=0),
+            scoring="r2",
+        )
+        self.r_features = list(
+            fs.fit_transform(X=temp, y=y[y.gt(0)]).columns  # type: ignore
+        )
+        self.regressor_.fit(X=temp[self.r_features], y=y[y.gt(0)], **kwargs)
         return self
 
     def predict(self, X):
-        X = X[self.features_]
+        if self.cat_features:
+            X[self.cat_features] = self.encoder.transform(X[self.cat_features])
 
-        if self.enable_target_encoding:
-            X[self.c_features] = self.encoder.transform(X[self.c_features])
-            X[self.s_features] = self.scaler.transform(X[self.s_features])
-
-        self.X_test = X
-
-        p = self.classifier_.predict_proba(X)[:, 1]
-        v = self.regressor_.predict(X).clip(min=0)
+        p = self.classifier_.predict_proba(X[self.c_features])[:, 1]
+        v = self.regressor_.predict(X[self.r_features]).clip(min=0)
         return p * v
 
 
+class DirectGlobalForecaster(BaseForecaster):
+    _tags = {
+        "y_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
+        "X_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
+        "scitype:transform-input": "Dataframe",
+        "scitype:transform-output": "Dataframe",
+        "requires-fh-in-fit": True,
+    }
+
+    def __init__(self, estimator, enable_weights=False):
+        self.estimator = estimator
+        self.enable_weights = enable_weights
+        self.summarizer = WindowSummarizer(
+            lag_feature={
+                "lag": [1, 2, 3, config.SEASONAL_PERIOD],
+                b_median: [[1, config.SEASONAL_PERIOD]],
+                b_mad: [[1, config.SEASONAL_PERIOD]],
+                c_occ_last: [[1, 1]],
+                c_occ_rate: [[1, config.SEASONAL_PERIOD]],
+                c_occ_count: [[1, config.SEASONAL_PERIOD]],
+                c_non_occ_head: [[1, config.SEASONAL_PERIOD]],
+                c_non_occ_tail: [[1, config.SEASONAL_PERIOD]],
+                r_pos_last: [[1, config.SEASONAL_PERIOD]],
+                r_pos_mean: [[1, config.SEASONAL_PERIOD]],
+                r_pos_std: [[1, config.SEASONAL_PERIOD]],
+                r_pos_sum: [[1, config.SEASONAL_PERIOD]],
+            },
+            n_jobs=1,
+        )
+
+        super().__init__()
+
+    def _linear(self, x):
+        return (1 / x.shape[0] ** 0.5) * np.linspace(0.1, 0.99, x.shape[0])
+
+    def _fit(self, y, X=None, fh=None):
+        self.estimators_, self.index, self.value = [], y.index.names, y.columns[0]
+        X_lag = self.summarizer.fit_transform(y).dropna()  # type: ignore
+        s = X_lag.apply(lambda x: x.value_counts(normalize=True).max())
+        X_lag = X_lag.drop(columns=s[s.ge(0.99)].index)
+
+        y = X_lag[[]].join(y)
+        if X is not None:
+            X = X_lag[[]].join(X)
+
+        if fh is not None:
+            for x in fh.to_numpy():
+                y_temp = y.groupby(self.index[0])[y.columns].shift(-x).dropna()
+                if X is not None:
+                    X_temp = (
+                        X.groupby(self.index[0])[X.columns]
+                        .shift(-x)
+                        .dropna()
+                        .join(X_lag)
+                    )
+                else:
+                    X_temp = y_temp[[]].join(X_lag)
+
+                if self.enable_weights:
+                    weights = np.concatenate(
+                        y_temp.groupby(y_temp.droplevel(-1).index.names)
+                        .apply(lambda x: self._linear(x[[]]))
+                        .tolist()
+                    )
+                else:
+                    weights = None
+
+                estimator = clone(self.estimator)
+                estimator.fit(y=y_temp, X=X_temp, sample_weight=weights)
+                self.estimators_ += [estimator]
+            else:
+                self.X_last_lag = (
+                    X_lag.groupby(self.index[0])[X_lag.columns].tail(1).droplevel(-1)
+                )
+                self.fh_test_index = pd.date_range(
+                    start=y.index.get_level_values(-1).max(),
+                    periods=config.FH_SIZE + 1,
+                    freq="D",
+                    inclusive="right",
+                )
+
+    def _predict(self, fh, X=None):
+        forecasts = []
+        if X is not None:
+            X = X.join(self.X_last_lag).reorder_levels(self.index[::-1])
+
+        for i, date in enumerate(self.fh_test_index):
+            y_temp = self.X_last_lag[[]]
+            y_temp[self.index[-1]] = date
+            y_temp = y_temp.set_index(self.index[-1], append=True)
+            X_temp = X.loc[date] if X is not None else self.X_last_lag
+            y_temp[self.value] = self.estimators_[i].predict(X_temp).clip(min=0)
+            forecasts += [y_temp.copy()]
+        else:
+            return pd.concat(forecasts).sort_index()
+
+
 il_complex_global = ForecastingOptunaSearchCV(
-    forecaster=make_reduction(
-        estimator=GlobalModelWrapper(
-            classifier=LGBMClassifier(
-                objective="binary",
-                n_jobs=1,
-                verbose=-1,
-                random_state=config.SEED,
-            ),
-            regressor=LGBMRegressor(
-                objective="tweedie",
-                n_jobs=1,
-                verbose=-1,
-                random_state=config.SEED,
-            ),
-        ),
-        transformers=[
-            WindowSummarizer(
-                lag_feature={
-                    "lag": [
-                        1,
-                        2,
-                        3,
-                        4,
-                        5,
-                        6,
-                        config.SEASONAL_PERIOD,
-                        2 * config.SEASONAL_PERIOD,
-                        3 * config.SEASONAL_PERIOD,
-                        4 * config.SEASONAL_PERIOD,
-                    ],
-                    "mean": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
-                        [1, 4 * config.SEASONAL_PERIOD],
-                    ],
-                    "std": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
-                        [1, 4 * config.SEASONAL_PERIOD],
-                    ],
-                    "sum": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
-                    ],
-                    "max": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
-                    ],
-                    "min": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
-                    ],
-                },
-                n_jobs=1,
-            )
-        ],
-        window_length=None,  # type: ignore
-        pooling="global",
+    forecaster=DirectGlobalForecaster(
+        estimator=LGBMRegressor(subsample_freq=1, n_jobs=1, verbose=-1)
     ),
     cv=cv,
     param_grid={
-        "estimator__enable_target_encoding": CategoricalDistribution([True, False]),
-        "estimator__enable_weights": CategoricalDistribution([True, False]),
-        "estimator__min_positive_samples": IntDistribution(10, 50),
-        "estimator__classifier__boosting_type": CategoricalDistribution(
-            ["gbdt", "dart", "rf"]
+        "enable_weights": CategoricalDistribution([False, True]),
+        "estimator__objective": CategoricalDistribution(
+            ["tweedie", "regression", "regression_l1", "huber", "fair"]
         ),
-        "estimator__classifier__n_estimators": IntDistribution(100, 700),
-        "estimator__classifier__learning_rate": FloatDistribution(0.01, 0.15, log=True),
-        "estimator__classifier__num_leaves": IntDistribution(15, 63),
-        "estimator__classifier__max_depth": IntDistribution(3, 8),
-        "estimator__classifier__min_child_samples": IntDistribution(10, 100),
-        "estimator__classifier__subsample": FloatDistribution(0.6, 1.0),
-        "estimator__classifier__colsample_bytree": FloatDistribution(0.5, 1.0),
-        "estimator__classifier__reg_alpha": FloatDistribution(0.0, 10.0),
-        "estimator__classifier__reg_lambda": FloatDistribution(0.0, 10.0),
-        "estimator__regressor__objective": CategoricalDistribution(
-            ["tweedie", "regression_l1"]
-        ),
-        "estimator__regressor__tweedie_variance_power": FloatDistribution(1.1, 1.7),
-        "estimator__regressor__boosting_type": CategoricalDistribution(
-            ["gbdt", "dart", "rf"]
-        ),
-        "estimator__regressor__n_estimators": IntDistribution(100, 900),
-        "estimator__regressor__learning_rate": FloatDistribution(0.005, 0.15, log=True),
-        "estimator__regressor__num_leaves": IntDistribution(15, 63),
-        "estimator__regressor__max_depth": IntDistribution(3, 8),
-        "estimator__regressor__min_child_samples": IntDistribution(5, 50),
-        "estimator__regressor__subsample": FloatDistribution(0.6, 1.0),
-        "estimator__regressor__colsample_bytree": FloatDistribution(0.5, 1.0),
-        "estimator__regressor__reg_alpha": FloatDistribution(0.0, 10.0),
-        "estimator__regressor__reg_lambda": FloatDistribution(0.0, 10.0),
+        "estimator__tweedie_variance_power": FloatDistribution(1, 2),
+        "estimator__boosting_type": CategoricalDistribution(["gbdt", "dart", "rf"]),
+        "estimator__n_estimators": IntDistribution(100, 900),
+        "estimator__learning_rate": FloatDistribution(0.005, 0.3),
+        "estimator__max_depth": IntDistribution(2, 7),
+        "estimator__subsample": FloatDistribution(0.6, 1.0),
+        "estimator__colsample_bytree": FloatDistribution(0.5, 1.0),
+        "estimator__reg_alpha": FloatDistribution(0.0, 10.0),
+        "estimator__reg_lambda": FloatDistribution(0.0, 10.0),
     },
     scoring=rmsle,
     error_score="raise",  # type: ignore
@@ -210,6 +235,41 @@ il_complex_global = ForecastingOptunaSearchCV(
     verbose=-1,
 )
 
-il_simplex_global = None
+il_simplex_global = ForecastingOptunaSearchCV(
+    forecaster=DirectGlobalForecaster(
+        estimator=HurdleModel(classifier=LogisticRegression(), regressor=ElasticNet())
+    ),
+    cv=cv,
+    param_grid={
+        "enable_weights": CategoricalDistribution([False, True]),
+        "estimator__classifier__C": FloatDistribution(0.01, 10),
+        "estimator__classifier__l1_ratio": FloatDistribution(0, 1),
+        "estimator__regressor__alpha": FloatDistribution(0.01, 10),
+        "estimator__regressor__l1_ratio": FloatDistribution(0, 1),
+    },
+    scoring=rmsle,
+    error_score="raise",  # type: ignore
+    sampler=TPESampler(seed=config.SEED),
+    verbose=-1,
+)
 
-il_complex_local = None
+il_simplex_local = ForecastingOptunaSearchCV(
+    forecaster=MultiplexForecaster(
+        forecasters=[
+            ("croston", Croston()),
+            ("adida", StatsForecastADIDA()),
+            ("tsb", TSB()),
+        ]
+    ),
+    cv=cv,
+    param_grid={
+        "selected_forecaster": CategoricalDistribution(["croston", "adida", "tsb"]),
+        "croston__smoothing": FloatDistribution(0.01, 1),
+        "tsb__alpha": FloatDistribution(0.01, 1),
+        "tsb__beta": FloatDistribution(0.01, 1),
+    },
+    scoring=rmsle,
+    error_score="raise",  # type: ignore
+    sampler=TPESampler(seed=config.SEED),
+    verbose=-1,
+)

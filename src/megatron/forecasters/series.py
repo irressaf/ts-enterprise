@@ -17,7 +17,7 @@ from megatron.forecasters.se_models import (
 from megatron.forecasters.il_models import (
     il_complex_global,
     il_simplex_global,
-    il_complex_local,
+    il_simplex_local,
 )
 
 warnings.filterwarnings("ignore")
@@ -47,7 +47,7 @@ class CommonForecaster(BaseForecaster):
             self.pipelines = {
                 "complex_global": il_complex_global,
                 "simplex_global": il_simplex_global,
-                "complex_local": il_complex_local,
+                "simplex_local": il_simplex_local,
             }
         self.models = {}
 
@@ -92,7 +92,6 @@ class CommonForecaster(BaseForecaster):
             print(
                 f"{path.relative_to(self.dir_path)} best {model.scoring.name} score: {round(model.best_score_, 3)}"
             )
-
         return index, path
 
     def _fit(self, y, X=None, fh=None):
@@ -105,7 +104,7 @@ class CommonForecaster(BaseForecaster):
                 self.models[tuple([cluster])] = "simplex_global"
             else:
                 for item in self.y_.loc[cluster].index.get_level_values(0).unique():
-                    self.models[tuple([cluster, item])] = "complex_local"
+                    self.models[tuple([cluster, item])] = "simplex_local"
 
         temp = ParallelPbar(
             desc=f"Successfully fitted {self.value} {self.demand} models",

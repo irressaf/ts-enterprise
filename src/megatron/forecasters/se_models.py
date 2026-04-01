@@ -95,7 +95,7 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
 
 se_complex_global = ForecastingOptunaSearchCV(
     forecaster=make_reduction(
-        GlobalModelWrapper(LGBMRegressor(subsample_freq=1, n_jobs=1, verbose=-1)),
+        estimator=GlobalModelWrapper(LGBMRegressor(subsample_freq=1, n_jobs=1, verbose=-1)),
         transformers=[
             WindowSummarizer(
                 lag_feature={
@@ -144,11 +144,14 @@ se_complex_global = ForecastingOptunaSearchCV(
     param_grid={
         "estimator__enable_target_encoding": CategoricalDistribution([True, False]),
         "estimator__enable_weights": CategoricalDistribution([True, False]),
+        "estimator__estimator__objective": CategoricalDistribution(
+            ["regression", "regression_l1", "huber", "fair", "mape"]
+        ),
         "estimator__estimator__boosting_type": CategoricalDistribution(
             ["gbdt", "dart", "rf"]
         ),
         "estimator__estimator__n_estimators": IntDistribution(100, 1000),
-        "estimator__estimator__learning_rate": FloatDistribution(0.005, 0.5),
+        "estimator__estimator__learning_rate": FloatDistribution(0.005, 0.3),
         "estimator__estimator__max_depth": IntDistribution(2, 7),
         "estimator__estimator__subsample": FloatDistribution(0.6, 1),
         "estimator__estimator__colsample_bytree": FloatDistribution(0.5, 1),
@@ -163,7 +166,7 @@ se_complex_global = ForecastingOptunaSearchCV(
 
 se_simplex_global = ForecastingOptunaSearchCV(
     forecaster=make_reduction(
-        GlobalModelWrapper(ElasticNet(), enable_target_encoding=True),
+        estimator=GlobalModelWrapper(ElasticNet(), enable_target_encoding=True),
         transformers=[
             WindowSummarizer(
                 lag_feature={

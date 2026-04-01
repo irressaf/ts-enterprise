@@ -180,7 +180,9 @@ def catch22_custom(x, w=3):
     hist = np.histogram(non_zero, bins="auto")[0]
     f_size_entropy = float(sp.entropy(hist)) if hist.sum() > 0 else 0.0
 
-    f_size_skew = float(np.nan_to_num(sp.skew(non_zero), nan=0.0)) if nz_count > 2 else 0.0
+    f_size_skew = (
+        float(np.nan_to_num(sp.skew(non_zero), nan=0.0)) if nz_count > 2 else 0.0
+    )
 
     f_spike_ratio = float(max_non_zero / mean_non_zero) if mean_non_zero > 0 else 0.0
     f_max_prop = float(max_non_zero / total_sum) if total_sum > 0 else 0.0
@@ -225,3 +227,49 @@ def catch22_custom(x, w=3):
         f_q90_q50_ratio,
         f_mean_interval_demand,
     ]
+
+
+def b_mad(x):
+    return sp.median_abs_deviation(x)
+
+
+def b_median(x):
+    return np.median(x)
+
+
+def c_occ_last(x):
+    return float(x[-1] > 0)
+
+
+def c_occ_rate(x):
+    return np.mean(x > 0)
+
+
+def c_occ_count(x):
+    return np.sum(x > 0)
+
+
+def c_non_occ_tail(x):
+    mask = ~(x == 0)[::-1]
+    return np.argmax(mask) if mask.max() else x.size
+
+
+def c_non_occ_head(x):
+    mask = ~(x == 0)
+    return np.argmax(mask) if mask.max() else x.size
+
+
+def r_pos_last(x):
+    return x[x > 0][-1] if x.max() else 0
+
+
+def r_pos_mean(x):
+    return x[x > 0].mean() if x.max() else 0
+
+
+def r_pos_std(x):
+    return x[x > 0].std() if x.max() else 0
+
+
+def r_pos_sum(x):
+    return x[x > 0].sum() if x.max() else 0
