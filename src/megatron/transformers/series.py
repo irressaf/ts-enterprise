@@ -3,7 +3,6 @@ import pandas as pd
 import scipy.stats as sp
 import ruptures as rpt
 from holidays import country_holidays
-
 from pyod.models.iforest import IForest
 
 from sktime.transformations.base import BaseTransformer
@@ -125,13 +124,13 @@ class OutlierDetector(BaseTransformer):
 
     def _od(self, data: pd.DataFrame):
         temp, columns = data.dropna(), data.columns
-
+  
         if self.demand in ("smooth", "erratic"):
             mask = temp[columns[-1]].values  # type: ignore
-            model = IForest(contamination=0.05, behaviour="new", random_state=42)
+            model = IForest(contamination=0.05, behaviour="new", random_state=config.SEED)
             model.fit(temp[[columns[0]]].values)
             outlier_mask = model.predict(temp[[columns[0]]].values).astype(bool)  # type: ignore
-            mask = mask & outlier_mask
+            mask &= outlier_mask
         else:
             mask = temp[columns[-1]].values
             values = np.log(temp.loc[temp[columns[0]].gt(0), columns[0]])

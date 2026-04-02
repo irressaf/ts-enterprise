@@ -11,14 +11,9 @@ from optuna.distributions import (
 
 from lightgbm import LGBMRegressor
 from sklearn.linear_model import LogisticRegression, ElasticNet
-
-
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.preprocessing import TargetEncoder
-from sklearn.metrics import root_mean_squared_log_error
 
-from sktime.performance_metrics.forecasting import make_forecasting_scorer
-from sktime.split import ExpandingGreedySplitter
 from sktime.forecasting.model_selection import ForecastingOptunaSearchCV
 from sktime.forecasting.compose import MultiplexForecaster
 from sktime.transformations.series.summarize import WindowSummarizer
@@ -40,12 +35,8 @@ from megatron.transformers.additional import (
     r_pos_std,
     r_pos_sum,
 )
-
+from megatron.forecasters.se_models import scoring, cv
 import megatron.config as config
-
-
-rmsle = make_forecasting_scorer(root_mean_squared_log_error, name="RMSLE")
-cv = ExpandingGreedySplitter(test_size=config.FH_SIZE, folds=1)
 
 
 class HurdleModel(BaseEstimator, RegressorMixin):
@@ -229,8 +220,7 @@ il_complex_global = ForecastingOptunaSearchCV(
         "estimator__reg_alpha": FloatDistribution(0.0, 10.0),
         "estimator__reg_lambda": FloatDistribution(0.0, 10.0),
     },
-    scoring=rmsle,
-    error_score="raise",  # type: ignore
+    scoring=scoring,
     sampler=TPESampler(seed=config.SEED),
     verbose=-1,
 )
@@ -247,8 +237,7 @@ il_simplex_global = ForecastingOptunaSearchCV(
         "estimator__regressor__alpha": FloatDistribution(0.01, 10),
         "estimator__regressor__l1_ratio": FloatDistribution(0, 1),
     },
-    scoring=rmsle,
-    error_score="raise",  # type: ignore
+    scoring=scoring,
     sampler=TPESampler(seed=config.SEED),
     verbose=-1,
 )
@@ -268,8 +257,7 @@ il_simplex_local = ForecastingOptunaSearchCV(
         "tsb__alpha": FloatDistribution(0.01, 1),
         "tsb__beta": FloatDistribution(0.01, 1),
     },
-    scoring=rmsle,
-    error_score="raise",  # type: ignore
+    scoring=scoring,
     sampler=TPESampler(seed=config.SEED),
     verbose=-1,
 )

@@ -5,14 +5,15 @@ from sklearn.base import clone
 from sktime.forecasting.base import BaseForecaster
 
 from pathlib import Path
-from joblib import Parallel, delayed, dump, load
+from joblib import Parallel, delayed, dump, load, cpu_count
 from tqdm_joblib import ParallelPbar
 import warnings
 
 from megatron.forecasters.se_models import (
     se_complex_global,
     se_simplex_global,
-    se_complex_local,
+    se_simplex_local,
+    scoring,
 )
 from megatron.forecasters.il_models import (
     il_complex_global,
@@ -31,7 +32,7 @@ class CommonForecaster(BaseForecaster):
         "scitype:transform-output": "Dataframe",
     }
 
-    def __init__(self, dir_path: Path, value: str, demand: str, n_jobs=-1):
+    def __init__(self, dir_path: Path, value: str, demand: str, n_jobs=cpu_count()):
         self.dir_path = dir_path
         self.value = value
         self.demand = demand
@@ -41,7 +42,7 @@ class CommonForecaster(BaseForecaster):
             self.pipelines = {
                 "complex_global": se_complex_global,
                 "simplex_global": se_simplex_global,
-                "complex_local": se_complex_local,
+                "simplex_local": se_simplex_local,
             }
         else:
             self.pipelines = {
@@ -86,11 +87,16 @@ class CommonForecaster(BaseForecaster):
                 X_temp = (
                     None if self.X_ is None else self.X_.loc[index[0]].loc[[index[-1]]]
                 )
-
+            print(f"index = {index}")
             model.fit(y=y_temp, X=X_temp, fh=fh)
             dump({"model": model.best_forecaster_, "score": model.best_score_}, path)
             print(
-                f"{path.relative_to(self.dir_path)} best {model.scoring.name} score: {round(model.best_score_, 3)}"
+                f"{path.relative_to(self.dir_path)} best {scoring.name} score: {round(model.best_score_, 3)}"
+            )
+        else:
+            score = load(path)["score"]
+            print(
+                f"{path.relative_to(self.dir_path)} best {scoring.name} score: {round(score, 3)}"
             )
         return index, path
 
@@ -106,6 +112,7 @@ class CommonForecaster(BaseForecaster):
                 for item in self.y_.loc[cluster].index.get_level_values(0).unique():
                     self.models[tuple([cluster, item])] = "simplex_local"
 
+        self.n_jobs = min(self.n_jobs, len(self.models))
         temp = ParallelPbar(
             desc=f"Successfully fitted {self.value} {self.demand} models",
         )(n_jobs=self.n_jobs)(

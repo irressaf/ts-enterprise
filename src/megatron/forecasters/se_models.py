@@ -35,7 +35,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-rmsle = make_forecasting_scorer(root_mean_squared_log_error, name="RMSLE")
+scoring = make_forecasting_scorer(root_mean_squared_log_error, name="RMSLE")
 cv = ExpandingGreedySplitter(test_size=config.FH_SIZE, folds=1)
 
 
@@ -158,8 +158,7 @@ se_complex_global = ForecastingOptunaSearchCV(
         "estimator__estimator__reg_alpha": FloatDistribution(0, 10),
         "estimator__estimator__reg_lambda": FloatDistribution(0, 10),
     },
-    scoring=rmsle,
-    error_score="raise",  # type: ignore
+    scoring=scoring,
     sampler=TPESampler(seed=config.SEED),
     verbose=-1,
 )
@@ -192,8 +191,7 @@ se_simplex_global = ForecastingOptunaSearchCV(
         "estimator__estimator__alpha": FloatDistribution(0.01, 15),
         "estimator__estimator__l1_ratio": FloatDistribution(0.01, 1),
     },
-    scoring=rmsle,
-    error_score="raise",  # type: ignore
+    scoring=scoring,
     sampler=TPESampler(seed=config.SEED),
     verbose=-1,
 )
@@ -249,7 +247,7 @@ class LocalModelWrapper(BaseForecaster):
         ).clip(lower=0)
 
 
-se_complex_local = ForecastingOptunaSearchCV(
+se_simplex_local = ForecastingOptunaSearchCV(
     forecaster=MultiplexForecaster(
         forecasters=[
             (
@@ -338,8 +336,7 @@ se_complex_local = ForecastingOptunaSearchCV(
             ["STM", "OTM", "DSTM", "DOTM"]
         ),
     },
-    scoring=rmsle,
-    error_score="raise",  # type: ignore
+    scoring=scoring,
     sampler=TPESampler(seed=config.SEED),
     verbose=-1,
 )

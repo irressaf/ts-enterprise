@@ -13,23 +13,23 @@ from megatron.transformers.series import (
 
 import megatron.config as config
 
-px.defaults.width, px.defaults.height = 900, 500  # type: ignore
-margin, color = dict(l=30, r=30, t=50, b=30), "#1f77b4"
+px.defaults.width, px.defaults.height = config.FIG_WIDTH, config.FIG_HEIGHT  # type: ignore
+margin, color = config.MARGIN, config.COLOR  # type: ignore
 
 
 def seriesPlot(
     data: pd.DataFrame,
-    demand: str,
+    demand="",
     X_exog=None,
     exog_column=None,
-    w=config.SEASONAL_PERIOD,
+    w=config.SEASONAL_PERIOD,  # type: ignore
     n_series=1,
     title="",
     pld=False,
     pd_value=np.nan,
     cpd=False,
     od=False,
-    seed=42,
+    seed=config.SEED,  # type: ignore
     line_width=1.5,
 ) -> None:
 
@@ -46,8 +46,9 @@ def seriesPlot(
         )
         index = data.droplevel(-1).index.unique()
 
+    n_rows = n_series // 2 if n_series > 1 else 1
     plt = make_subplots(
-        rows=n_series // 2 if n_series > 1 else 1,
+        rows=n_rows,
         cols=2 if n_series > 1 else 1,
         subplot_titles=[str(x) for x in index],
         horizontal_spacing=0.05,
@@ -110,7 +111,45 @@ def seriesPlot(
 
     else:
         plt.update_layout(
-            height=230 * n_series // 2 if n_series > 2 else 500,
+            height=max(500, 320 * n_rows),
+            showlegend=False,
+            title={"text": title, "x": 0.5},
+            margin=margin,
+        )
+        plt.show()
+
+
+def clusterSeriesPlot(
+    data: pd.DataFrame, title="Time series clustering", line_width=1.5
+):
+    index, value = data.index.names, data.columns[0]
+    clusters = data.index.get_level_values(0).unique()
+    n_rows = int(np.ceil(len(clusters) / 2))
+
+    plt = make_subplots(
+        rows=n_rows,
+        cols=2,
+        subplot_titles=[str(x) for x in clusters],
+        horizontal_spacing=0.05,
+        vertical_spacing=0.075,
+    )
+
+    for i, cluster in enumerate(clusters):
+        temp = data.loc[cluster].reset_index()
+
+        for _, temp_item in temp.groupby(index[1]):
+            plt.add_trace(
+                go.Scatter(
+                    x=temp_item[index[-1]],
+                    y=temp_item[value],
+                    line={"width": line_width},
+                ),
+                row=i // 2 + 1,
+                col=i % 2 + 1,
+            )
+    else:
+        plt.update_layout(
+            height=max(500, 320 * n_rows),
             showlegend=False,
             title={"text": title, "x": 0.5},
             margin=margin,
