@@ -61,7 +61,7 @@ class HurdleModel(BaseEstimator, RegressorMixin):
 
         if self.cat_features:
             self.encoder = TargetEncoder(
-                smooth=1, random_state=config.SEED, target_type="continuous"
+                smooth=1, random_state=config.SEED, target_type="continuous"  # type: ignore
             )
             X[self.cat_features] = self.encoder.fit_transform(X[self.cat_features], y)
 
@@ -112,23 +112,24 @@ class DirectGlobalForecaster(BaseForecaster):
         "requires-fh-in-fit": True,
     }
 
-    def __init__(self, estimator, enable_weights=False):
+    def __init__(self, estimator, w: int, enable_weights=False):
         self.estimator = estimator
+        self.w = w
         self.enable_weights = enable_weights
         self.summarizer = WindowSummarizer(
             lag_feature={
-                "lag": [1, 2, 3, config.SEASONAL_PERIOD],
-                b_median: [[1, config.SEASONAL_PERIOD]],
-                b_mad: [[1, config.SEASONAL_PERIOD]],
+                "lag": [1, 2, 3, self.w],  # type: ignore
+                b_median: [[1, self.w]],  # type: ignore
+                b_mad: [[1, self.w]],  # type: ignore
                 c_occ_last: [[1, 1]],
-                c_occ_rate: [[1, config.SEASONAL_PERIOD]],
-                c_occ_count: [[1, config.SEASONAL_PERIOD]],
-                c_non_occ_head: [[1, config.SEASONAL_PERIOD]],
-                c_non_occ_tail: [[1, config.SEASONAL_PERIOD]],
-                r_pos_last: [[1, config.SEASONAL_PERIOD]],
-                r_pos_mean: [[1, config.SEASONAL_PERIOD]],
-                r_pos_std: [[1, config.SEASONAL_PERIOD]],
-                r_pos_sum: [[1, config.SEASONAL_PERIOD]],
+                c_occ_rate: [[1, self.w]],  # type: ignore
+                c_occ_count: [[1, self.w]],  # type: ignore
+                c_non_occ_head: [[1, self.w]],  # type: ignore
+                c_non_occ_tail: [[1, self.w]],  # type: ignore
+                r_pos_last: [[1, self.w]],  # type: ignore
+                r_pos_mean: [[1, self.w]],  # type: ignore
+                r_pos_std: [[1, self.w]],  # type: ignore
+                r_pos_sum: [[1, self.w]],  # type: ignore
             },
             n_jobs=1,
         )
@@ -179,7 +180,7 @@ class DirectGlobalForecaster(BaseForecaster):
                 )
                 self.fh_test_index = pd.date_range(
                     start=y.index.get_level_values(-1).max(),
-                    periods=config.FH_SIZE + 1,
+                    periods=len(fh) + 1,  # type: ignore
                     freq="D",
                     inclusive="right",
                 )
@@ -202,7 +203,8 @@ class DirectGlobalForecaster(BaseForecaster):
 
 il_complex_global = ForecastingOptunaSearchCV(
     forecaster=DirectGlobalForecaster(
-        estimator=LGBMRegressor(subsample_freq=1, n_jobs=1, verbose=-1)
+        estimator=LGBMRegressor(subsample_freq=1, n_jobs=1, verbose=-1),
+        w=config.SEASONAL_PERIOD,  # type: ignore
     ),
     cv=cv,
     param_grid={
@@ -211,7 +213,7 @@ il_complex_global = ForecastingOptunaSearchCV(
             ["tweedie", "regression", "regression_l1", "huber", "fair"]
         ),
         "estimator__tweedie_variance_power": FloatDistribution(1, 2),
-        "estimator__boosting_type": CategoricalDistribution(["gbdt", "dart", "rf"]),
+        "estimator__boosting_type": CategoricalDistribution(["gbdt", "rf"]),
         "estimator__n_estimators": IntDistribution(100, 900),
         "estimator__learning_rate": FloatDistribution(0.005, 0.3),
         "estimator__max_depth": IntDistribution(2, 7),
@@ -221,13 +223,14 @@ il_complex_global = ForecastingOptunaSearchCV(
         "estimator__reg_lambda": FloatDistribution(0.0, 10.0),
     },
     scoring=scoring,
-    sampler=TPESampler(seed=config.SEED),
+    sampler=TPESampler(seed=config.SEED),  # type: ignore
     verbose=-1,
 )
 
 il_simplex_global = ForecastingOptunaSearchCV(
     forecaster=DirectGlobalForecaster(
-        estimator=HurdleModel(classifier=LogisticRegression(), regressor=ElasticNet())
+        estimator=HurdleModel(classifier=LogisticRegression(), regressor=ElasticNet()),
+        w=config.SEASONAL_PERIOD,  # type: ignore
     ),
     cv=cv,
     param_grid={
@@ -238,7 +241,7 @@ il_simplex_global = ForecastingOptunaSearchCV(
         "estimator__regressor__l1_ratio": FloatDistribution(0, 1),
     },
     scoring=scoring,
-    sampler=TPESampler(seed=config.SEED),
+    sampler=TPESampler(seed=config.SEED),  # type: ignore
     verbose=-1,
 )
 
@@ -258,6 +261,6 @@ il_simplex_local = ForecastingOptunaSearchCV(
         "tsb__beta": FloatDistribution(0.01, 1),
     },
     scoring=scoring,
-    sampler=TPESampler(seed=config.SEED),
+    sampler=TPESampler(seed=config.SEED),  # type: ignore
     verbose=-1,
 )

@@ -1,7 +1,5 @@
 import pandas as pd
-
 from sklearn.base import clone
-
 from sktime.forecasting.base import BaseForecaster
 
 from pathlib import Path
@@ -87,9 +85,15 @@ class CommonForecaster(BaseForecaster):
                 X_temp = (
                     None if self.X_ is None else self.X_.loc[index[0]].loc[[index[-1]]]
                 )
-            print(f"index = {index}")
             model.fit(y=y_temp, X=X_temp, fh=fh)
-            dump({"model": model.best_forecaster_, "score": model.best_score_}, path)
+            dump(
+                {
+                    "model": model.best_forecaster_,
+                    "score": model.best_score_,
+                    "y_size": y_temp.shape[0],
+                },
+                path,
+            )
             print(
                 f"{path.relative_to(self.dir_path)} best {scoring.name} score: {round(model.best_score_, 3)}"
             )

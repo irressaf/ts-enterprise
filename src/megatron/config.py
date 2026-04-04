@@ -10,11 +10,12 @@ import os, random
 @dataclass
 class Config:
     SEASONAL_PERIOD: int = 1
+    FH_SIZE: int = 1
+    MAX_LAG_W_SIZE: int = 7
     MIN_LENGTH: int = 7
     COUNTRY: str = "RU"
     MIN_DATE: pd.Timestamp = pd.to_datetime("1900-01-01")
     MAX_DATE: pd.Timestamp = pd.to_datetime(datetime.today())
-    FH_SIZE: int = 1
     SEED: int = 42
     FIG_WIDTH: int = 900
     FIG_HEIGHT: int = 500
@@ -26,6 +27,7 @@ class Config:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Config":
+        data["MIN_LENGTH"] = data["MAX_LAG_W_SIZE"] + data["FH_SIZE"] + 1
         return cls(**data)
 
 

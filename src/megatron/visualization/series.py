@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 
-import plotly.express as px
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
@@ -12,9 +11,6 @@ from megatron.transformers.series import (
 )
 
 import megatron.config as config
-
-px.defaults.width, px.defaults.height = config.FIG_WIDTH, config.FIG_HEIGHT  # type: ignore
-margin, color = config.MARGIN, config.COLOR  # type: ignore
 
 
 def seriesPlot(
@@ -46,13 +42,15 @@ def seriesPlot(
         )
         index = data.droplevel(-1).index.unique()
 
-    n_rows = n_series // 2 if n_series > 1 else 1
+    n_rows, gap = n_series // 2 if n_series > 1 else 1, 50
+    height = max(n_rows * 250 + (n_rows - 1) * gap, config.FIG_HEIGHT)  # type: ignore
+    v_space = gap / height if n_rows > 1 else 0
     plt = make_subplots(
         rows=n_rows,
         cols=2 if n_series > 1 else 1,
         subplot_titles=[str(x) for x in index],
         horizontal_spacing=0.05,
-        vertical_spacing=0.075,
+        vertical_spacing=v_space,
     )
 
     for i, instance in enumerate(index):
@@ -62,7 +60,7 @@ def seriesPlot(
             go.Scatter(
                 x=temp.index,
                 y=temp.values.flatten(),
-                line={"color": color, "width": line_width},
+                line={"color": config.COLOR, "width": line_width},  # type: ignore
             ),
             row=i // 2 + 1,
             col=i % 2 + 1,
@@ -111,27 +109,31 @@ def seriesPlot(
 
     else:
         plt.update_layout(
-            height=max(500, 320 * n_rows),
+            width=config.FIG_WIDTH,  # type: ignore
+            height=height,  # type: ignore
             showlegend=False,
             title={"text": title, "x": 0.5},
-            margin=margin,
+            margin=config.MARGIN,  # type: ignore
         )
         plt.show()
 
 
-def clusterSeriesPlot(
-    data: pd.DataFrame, title="Time series clustering", line_width=1.5
+def clusteredSeriesPlot(
+    data: pd.DataFrame, title="", line_width=1.5
 ):
     index, value = data.index.names, data.columns[0]
     clusters = data.index.get_level_values(0).unique()
     n_rows = int(np.ceil(len(clusters) / 2))
 
+    n_rows, gap = len(clusters) // 2 if len(clusters) > 1 else 1, 50
+    height = max(n_rows * 250 + (n_rows - 1) * gap, config.FIG_HEIGHT)  # type: ignore
+    v_space = gap / height if n_rows > 1 else 0
     plt = make_subplots(
         rows=n_rows,
         cols=2,
-        subplot_titles=[str(x) for x in clusters],
+        subplot_titles=[f"Cluster {x}" for x in clusters],
         horizontal_spacing=0.05,
-        vertical_spacing=0.075,
+        vertical_spacing=v_space,
     )
 
     for i, cluster in enumerate(clusters):
@@ -149,9 +151,64 @@ def clusterSeriesPlot(
             )
     else:
         plt.update_layout(
-            height=max(500, 320 * n_rows),
+            width=config.FIG_WIDTH,  # type: ignore
+            height=height,  # type: ignore
             showlegend=False,
             title={"text": title, "x": 0.5},
-            margin=margin,
+            margin=config.MARGIN,  # type: ignore
         )
         plt.show()
+
+
+def forecastedSeriesPlot(
+    data: pd.DataFrame,
+    group="group",
+    n_series=1,
+    title="",
+    seed=config.SEED,  # type: ignore
+    line_width=1.5,
+) -> None:
+
+    value = data.columns[0]
+    np.random.seed(seed)
+    index = np.random.choice(
+        data.droplevel(-1).index.unique(), size=n_series, replace=False
+    )
+
+    n_rows, gap = n_series // 2 if n_series > 1 else 1, 50
+    height = max(n_rows * 250 + (n_rows - 1) * gap, config.FIG_HEIGHT)  # type: ignore
+    v_space = gap / height if n_rows > 1 else 0
+    plt = make_subplots(
+        rows=n_rows,
+        cols=2 if n_series > 1 else 1,
+        subplot_titles=[str(x) for x in index],
+        horizontal_spacing=0.05,
+        vertical_spacing=v_space,
+    )
+
+    colors = {"train": "#636EFA", "forecast": "#EF553B"}
+
+    for i, instance in enumerate(index):
+        temp = data.loc[instance].reset_index()
+
+        for g, temp_group in temp.groupby(group):
+            plt.add_trace(
+                go.Scatter(
+                    x=temp_group[data.index.names[-1]],
+                    y=temp_group[value],
+                    name=g,
+                    line={"width": line_width, "color": colors[g]},
+                    mode="lines"
+                ),
+                row=i // 2 + 1,
+                col=i % 2 + 1,
+            )
+
+    plt.update_layout(
+        width=config.FIG_WIDTH,  # type: ignore
+        height=height,  # type: ignore
+        showlegend=False,
+        title={"text": title, "x": 0.5},
+        margin=config.MARGIN,  # type: ignore
+    )
+    plt.show()

@@ -22,7 +22,7 @@ class SmoothErraticClusterer(BaseClusterer):
         "capability:unequal_length": True,
     }
 
-    def __init__(self, w=config.MIN_LENGTH, n_jobs=-1):
+    def __init__(self, w=config.MIN_LENGTH, n_jobs=-1):  # type: ignore
         self.w = w
         self.n_jobs = n_jobs
 
@@ -60,7 +60,6 @@ class SmoothErraticClusterer(BaseClusterer):
         temp = Parallel(n_jobs=self.n_jobs)(
             delayed(self._clustering)(n, 25) for _ in range(100)
         )
-
         aris = np.array(
             [
                 adjusted_rand_score(x, y)
@@ -169,7 +168,7 @@ class IntermittentLumpyClusterer(BaseClusterer):
         "capability:unequal_length": True,
     }
 
-    def __init__(self, w=config.SEASONAL_PERIOD, n_jobs=-1):
+    def __init__(self, w=config.SEASONAL_PERIOD, n_jobs=-1):  # type: ignore
         self.w = w
         self.n_jobs = n_jobs
 
@@ -185,7 +184,6 @@ class IntermittentLumpyClusterer(BaseClusterer):
         temp = Parallel(n_jobs=self.n_jobs)(
             delayed(self._clustering)(n, 25) for _ in range(100)
         )
-
         aris = np.array(
             [
                 adjusted_rand_score(x, y)

@@ -41,11 +41,11 @@ class CommonPipeline(BaseForecaster):
 
         if self.demand in ("smooth", "erratic"):
             # plateau detection
-            pld = PlateauDetector(w=2 * config.SEASONAL_PERIOD, value=0, truncate=True)
+            pld = PlateauDetector(w=2 * config.SEASONAL_PERIOD, value=0, truncate=True)  # type: ignore
             y = pld.fit_transform(y)
 
             # change point detection
-            cpd = ChangePointDetector(w=config.MIN_LENGTH, truncate=True)
+            cpd = ChangePointDetector(w=config.MIN_LENGTH, truncate=True)  # type: ignore
             y = cpd.fit_transform(y)
 
         # outliers detection
@@ -66,7 +66,7 @@ class CommonPipeline(BaseForecaster):
         else:
             y = y.groupby(y.droplevel(-1).index.names).transform(  # type: ignore
                 lambda x: x.fillna(
-                    x.rolling(window=config.SEASONAL_PERIOD, min_periods=1).median()
+                    x.rolling(window=config.SEASONAL_PERIOD, min_periods=1).median()  # type: ignore
                 ).fillna(0)
             )
 
@@ -157,13 +157,7 @@ class E2EForecaster(BaseForecaster):
     def _fit(self, y, X=None, fh=None):
         self.value, self.index = y.columns[0], y.droplevel(-1).index.names
         fh = ForecastingHorizon(
-            values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"
-        )
-
-        self.int_items = (
-            y.groupby(self.index)[self.value]
-            .apply(lambda x: (x.dropna() % 1).eq(0).all())
-            .to_dict()
+            values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"  # type: ignore
         )
 
         y = y.sort_index()
@@ -198,7 +192,7 @@ class E2EForecaster(BaseForecaster):
 
     def _predict(self, fh, X=None):
         fh = ForecastingHorizon(
-            values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"
+            values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"  # type: ignore
         )
 
         if X is not None:
@@ -209,7 +203,7 @@ class E2EForecaster(BaseForecaster):
                 .reorder_levels(["class"] + X.index.names)  # type: ignore
             )
 
-        temp = self.mapper.inverse_transform(
+        return self.mapper.inverse_transform(
             pd.concat(
                 [
                     self.models[demand].predict(
@@ -219,8 +213,3 @@ class E2EForecaster(BaseForecaster):
                 ]
             ).sort_index()
         )
-        temp[self.value] = [
-            round(x) if self.int_items[y] else x
-            for x, y in zip(temp[self.value], temp.droplevel(-1).index)
-        ]
-        return temp

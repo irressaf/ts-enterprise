@@ -114,20 +114,23 @@ class OutlierDetector(BaseTransformer):
         "scitype:transform-output": "Dataframe",
     }
 
-    def __init__(self, demand: str, exog_column=None, truncate=False, n_jobs=-1):
+    def __init__(
+        self, demand: str, exog_column=None, truncate=False, seed=config.SEED, n_jobs=-1  # type: ignore
+    ):
         self.demand = demand
         self.exog_column = exog_column
         self.truncate = truncate
+        self.seed = seed
         self.n_jobs = n_jobs
 
         super().__init__()
 
     def _od(self, data: pd.DataFrame):
         temp, columns = data.dropna(), data.columns
-  
+
         if self.demand in ("smooth", "erratic"):
             mask = temp[columns[-1]].values  # type: ignore
-            model = IForest(contamination=0.05, behaviour="new", random_state=config.SEED)
+            model = IForest(contamination=0.05, behaviour="new", random_state=self.seed)
             model.fit(temp[[columns[0]]].values)
             outlier_mask = model.predict(temp[[columns[0]]].values).astype(bool)  # type: ignore
             mask &= outlier_mask
@@ -154,8 +157,8 @@ class OutlierDetector(BaseTransformer):
     def _transform(self, X, y=None):
         hf = HolidayFeatures(
             calendar=country_holidays(
-                country=config.COUNTRY,
-                years=[*range(config.MIN_DATE.year, config.MAX_DATE.year + 1)],
+                country=config.COUNTRY,  # type: ignore
+                years=[*range(config.MIN_DATE.year, config.MAX_DATE.year + 1)],  # type: ignore
             ),
             include_bridge_days=True,
             return_dummies=False,
@@ -163,7 +166,7 @@ class OutlierDetector(BaseTransformer):
         )
         temp = pd.DataFrame(
             index=pd.Index(
-                pd.date_range(config.MIN_DATE, config.MAX_DATE), name=X.index.names[-1]
+                pd.date_range(config.MIN_DATE, config.MAX_DATE), name=X.index.names[-1]  # type: ignore
             )
         )
         temp = ~hf.fit_transform(temp).astype(bool)  # type: ignore
@@ -197,7 +200,7 @@ class ExogenousDataTransformer(BaseTransformer):
     def _wageDateFlag(self, data: pd.DataFrame):
         wage = pd.DataFrame(
             {
-                "date": pd.date_range(config.MIN_DATE, config.MAX_DATE, freq="SME"),
+                "date": pd.date_range(config.MIN_DATE, config.MAX_DATE, freq="SME"),  # type: ignore
                 "is_wage": 1,
             }
         ).set_index("date")
@@ -219,8 +222,8 @@ class ExogenousDataTransformer(BaseTransformer):
         )
         self.holidays_transformer = HolidayFeatures(
             calendar=country_holidays(
-                country=config.COUNTRY,
-                years=[*range(config.MIN_DATE.year, config.MAX_DATE.year + 1)],
+                country=config.COUNTRY,  # type: ignore
+                years=[*range(config.MIN_DATE.year, config.MAX_DATE.year + 1)],  # type: ignore
             ),
             include_bridge_days=True,
             return_dummies=False,
@@ -238,7 +241,7 @@ class ExogenousDataTransformer(BaseTransformer):
         warnings.filterwarnings("ignore")
 
         temp = pd.DataFrame(
-            index=pd.Index(pd.date_range(config.MIN_DATE, config.MAX_DATE), name="date")
+            index=pd.Index(pd.date_range(config.MIN_DATE, config.MAX_DATE), name="date")  # type: ignore
         )
         temp = self.date_time_transformer.fit_transform(temp)
         temp = self.holidays_transformer.fit_transform(temp)

@@ -36,7 +36,7 @@ warnings.filterwarnings("ignore")
 
 
 scoring = make_forecasting_scorer(root_mean_squared_log_error, name="RMSLE")
-cv = ExpandingGreedySplitter(test_size=config.FH_SIZE, folds=1)
+cv = ExpandingGreedySplitter(test_size=config.FH_SIZE, folds=1)  # type: ignore
 
 
 class GlobalModelWrapper(BaseEstimator, RegressorMixin):
@@ -47,8 +47,8 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
 
         super().__init__()
 
-    def _hyperbolic(self, x):
-        return (1 / x.shape[0] ** 0.5) * (1 / (1 - np.linspace(0.1, 0.99, x.shape[0])))
+    def _linear(self, x):
+        return (1 / x.shape[0] ** 0.5) * np.linspace(0.1, 0.99, x.shape[0])
 
     def fit(self, X, y, **kwargs):
         self.estimator_, weights = clone(self.estimator), None
@@ -57,7 +57,7 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
         if self.enable_weights:
             weights = np.concatenate(
                 X.groupby(X.index.names[:-1])
-                .apply(lambda x: self._hyperbolic(x[[]]))
+                .apply(lambda x: self._linear(x[[]]))
                 .tolist()
             )
 
@@ -69,7 +69,7 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
             self.c_features = list(s[s.between(3, 31)].index)
 
             self.encoder = TargetEncoder(
-                smooth=1, random_state=config.SEED, target_type="continuous"
+                smooth=1, random_state=config.SEED, target_type="continuous"  # type: ignore
             )
             X[self.c_features] = self.encoder.fit_transform(
                 X[self.c_features], X["target"]
@@ -82,6 +82,7 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
         y = X["target"]
         X = X.drop(columns=["target"])
         self.features_ = list(X.columns)
+
         return self.estimator_.fit(X=X, y=y, sample_weight=weights, **kwargs)
 
     def predict(self, X):
@@ -95,7 +96,9 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
 
 se_complex_global = ForecastingOptunaSearchCV(
     forecaster=make_reduction(
-        estimator=GlobalModelWrapper(LGBMRegressor(subsample_freq=1, n_jobs=1, verbose=-1)),
+        estimator=GlobalModelWrapper(
+            LGBMRegressor(subsample_freq=1, n_jobs=1, verbose=-1)
+        ),
         transformers=[
             WindowSummarizer(
                 lag_feature={
@@ -106,32 +109,32 @@ se_complex_global = ForecastingOptunaSearchCV(
                         4,
                         5,
                         6,
-                        config.SEASONAL_PERIOD,
-                        2 * config.SEASONAL_PERIOD,
-                        3 * config.SEASONAL_PERIOD,
-                        4 * config.SEASONAL_PERIOD,
+                        config.SEASONAL_PERIOD,  # type: ignore
+                        2 * config.SEASONAL_PERIOD,  # type: ignore
+                        3 * config.SEASONAL_PERIOD,  # type: ignore
+                        4 * config.SEASONAL_PERIOD,  # type: ignore
                     ],
                     "mean": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
-                        [1, 4 * config.SEASONAL_PERIOD],
+                        [1, config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 2 * config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 4 * config.SEASONAL_PERIOD],  # type: ignore
                     ],
                     "std": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
-                        [1, 4 * config.SEASONAL_PERIOD],
+                        [1, config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 2 * config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 4 * config.SEASONAL_PERIOD],  # type: ignore
                     ],
                     "sum": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
+                        [1, config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 2 * config.SEASONAL_PERIOD],  # type: ignore
                     ],
                     "max": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
+                        [1, config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 2 * config.SEASONAL_PERIOD],  # type: ignore
                     ],
                     "min": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
+                        [1, config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 2 * config.SEASONAL_PERIOD],  # type: ignore
                     ],
                 },
                 n_jobs=1,
@@ -147,9 +150,7 @@ se_complex_global = ForecastingOptunaSearchCV(
         "estimator__estimator__objective": CategoricalDistribution(
             ["regression", "regression_l1", "huber", "fair", "mape"]
         ),
-        "estimator__estimator__boosting_type": CategoricalDistribution(
-            ["gbdt", "dart", "rf"]
-        ),
+        "estimator__estimator__boosting_type": CategoricalDistribution(["gbdt", "rf"]),
         "estimator__estimator__n_estimators": IntDistribution(100, 1000),
         "estimator__estimator__learning_rate": FloatDistribution(0.005, 0.3),
         "estimator__estimator__max_depth": IntDistribution(2, 7),
@@ -159,7 +160,7 @@ se_complex_global = ForecastingOptunaSearchCV(
         "estimator__estimator__reg_lambda": FloatDistribution(0, 10),
     },
     scoring=scoring,
-    sampler=TPESampler(seed=config.SEED),
+    sampler=TPESampler(seed=config.SEED),  # type: ignore
     verbose=-1,
 )
 
@@ -171,13 +172,13 @@ se_simplex_global = ForecastingOptunaSearchCV(
                 lag_feature={
                     "lag": [
                         1,
-                        config.SEASONAL_PERIOD,
-                        2 * config.SEASONAL_PERIOD,
-                        4 * config.SEASONAL_PERIOD,
+                        config.SEASONAL_PERIOD,  # type: ignore
+                        2 * config.SEASONAL_PERIOD,  # type: ignore
+                        4 * config.SEASONAL_PERIOD,  # type: ignore
                     ],
-                    "mean": [[1, 4 * config.SEASONAL_PERIOD]],
-                    "std": [[1, 4 * config.SEASONAL_PERIOD]],
-                    "sum": [[1, config.SEASONAL_PERIOD]],
+                    "mean": [[1, 4 * config.SEASONAL_PERIOD]],  # type: ignore
+                    "std": [[1, 4 * config.SEASONAL_PERIOD]],  # type: ignore
+                    "sum": [[1, config.SEASONAL_PERIOD]],  # type: ignore
                 },
                 n_jobs=1,
             )
@@ -192,7 +193,7 @@ se_simplex_global = ForecastingOptunaSearchCV(
         "estimator__estimator__l1_ratio": FloatDistribution(0.01, 1),
     },
     scoring=scoring,
-    sampler=TPESampler(seed=config.SEED),
+    sampler=TPESampler(seed=config.SEED),  # type: ignore
     verbose=-1,
 )
 
@@ -219,7 +220,7 @@ class LocalModelWrapper(BaseForecaster):
             s = X.drop(columns=["target"]).nunique()
             self.c_features = list(s[s.between(3, 31)].index)
 
-            self.encoder = TargetEncoder(smooth=1, random_state=config.SEED)
+            self.encoder = TargetEncoder(smooth=1, random_state=config.SEED)  # type: ignore
             X[self.c_features] = self.encoder.fit_transform(
                 X[self.c_features], X["target"]
             )
@@ -259,7 +260,7 @@ se_simplex_local = ForecastingOptunaSearchCV(
                             LocalModelWrapper(
                                 estimator=Prophet(
                                     add_country_holidays={
-                                        "country_name": config.COUNTRY
+                                        "country_name": config.COUNTRY  # type: ignore
                                     },
                                     weekly_seasonality=True,  # type: ignore
                                     verbose=-1,
@@ -271,7 +272,7 @@ se_simplex_local = ForecastingOptunaSearchCV(
                             "theta",
                             LocalModelWrapper(
                                 estimator=StatsForecastAutoTheta(
-                                    season_length=config.SEASONAL_PERIOD
+                                    season_length=config.SEASONAL_PERIOD  # type: ignore
                                 ),
                                 whether_to_use_X=False,
                             ),
@@ -288,7 +289,7 @@ se_simplex_local = ForecastingOptunaSearchCV(
                             "theta",
                             LocalModelWrapper(
                                 estimator=StatsForecastAutoTheta(
-                                    season_length=config.SEASONAL_PERIOD
+                                    season_length=config.SEASONAL_PERIOD  # type: ignore
                                 ),
                                 whether_to_use_X=False,
                             ),
@@ -337,6 +338,6 @@ se_simplex_local = ForecastingOptunaSearchCV(
         ),
     },
     scoring=scoring,
-    sampler=TPESampler(seed=config.SEED),
+    sampler=TPESampler(seed=config.SEED),  # type: ignore
     verbose=-1,
 )
