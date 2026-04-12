@@ -2,18 +2,19 @@ import pandas as pd
 
 from sktime.forecasting.base import BaseForecaster, ForecastingHorizon
 
-from megatron.transformers.series import (
+from megatron.transformers import (
     PlateauDetector,
     ChangePointDetector,
     OutlierDetector,
     ExogenousDataTransformer,
+    Mapper, 
+    DemandClassifier
 )
-from megatron.transformers.additional import Mapper, DemandClassifier
-from megatron.clusterers.series import (
+from megatron.clusterers import (
     SmoothErraticClusterer,
     IntermittentLumpyClusterer,
 )
-from megatron.forecasters.series import CommonForecaster
+from megatron.forecasters import CommonForecaster
 
 from pathlib import Path
 from joblib import dump, load

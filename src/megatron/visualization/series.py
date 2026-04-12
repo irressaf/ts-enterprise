@@ -4,13 +4,58 @@ import pandas as pd
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-from megatron.transformers.series import (
+from megatron.transformers import (
     ChangePointDetector,
     PlateauDetector,
     OutlierDetector,
 )
 
 import megatron.config as config
+
+
+def classifiedSeriesPlot(
+    data: pd.DataFrame,
+    title="",
+    seed=config.SEED,  # type: ignore
+    line_width=1.5,
+) -> None:
+    np.random.seed(seed)
+    index = data.index.get_level_values(0).unique()
+    n_rows, gap = len(index) // 2 if len(index) > 1 else 1, 50
+    height = max(n_rows * 250 + (n_rows - 1) * gap, config.FIG_HEIGHT)  # type: ignore
+    v_space = gap / height if n_rows > 1 else 0
+    plt = make_subplots(
+        rows=n_rows,
+        cols=2 if len(index) > 1 else 1,
+        subplot_titles=[str(x) for x in index],
+        horizontal_spacing=0.05,
+        vertical_spacing=v_space,
+    )
+
+    for i, instance in enumerate(index):
+        temp = data.loc[instance]
+        idx = np.random.choice(temp.index.get_level_values(0).unique())
+        temp = temp.loc[idx]
+
+        plt.add_trace(
+            go.Scatter(
+                x=temp.index,
+                y=temp.values.flatten(),
+                line={"width": line_width},  # type: ignore
+            ),
+            row=i // 2 + 1,
+            col=i % 2 + 1,
+        )
+
+    else:
+        plt.update_layout(
+            width=config.FIG_WIDTH,  # type: ignore
+            height=height,  # type: ignore
+            showlegend=False,
+            title={"text": title, "x": 0.5},
+            margin=config.MARGIN,  # type: ignore
+        )
+        plt.show()
 
 
 def seriesPlot(
@@ -118,9 +163,7 @@ def seriesPlot(
         plt.show()
 
 
-def clusteredSeriesPlot(
-    data: pd.DataFrame, title="", line_width=1.5
-):
+def clusteredSeriesPlot(data: pd.DataFrame, title="", line_width=1.5):
     index, value = data.index.names, data.columns[0]
     clusters = data.index.get_level_values(0).unique()
     n_rows = int(np.ceil(len(clusters) / 2))
@@ -198,7 +241,7 @@ def forecastedSeriesPlot(
                     y=temp_group[value],
                     name=g,
                     line={"width": line_width, "color": colors[g]},
-                    mode="lines"
+                    mode="lines",
                 ),
                 row=i // 2 + 1,
                 col=i % 2 + 1,

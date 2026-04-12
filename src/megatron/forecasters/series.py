@@ -7,16 +7,14 @@ from joblib import Parallel, delayed, dump, load, cpu_count
 from tqdm_joblib import ParallelPbar
 import warnings
 
-from megatron.forecasters.se_models import (
+from megatron.forecasters import (
+    il_complex_global,
+    il_simplex_global,
+    il_simplex_local,
     se_complex_global,
     se_simplex_global,
     se_simplex_local,
     scoring,
-)
-from megatron.forecasters.il_models import (
-    il_complex_global,
-    il_simplex_global,
-    il_simplex_local,
 )
 
 warnings.filterwarnings("ignore")
