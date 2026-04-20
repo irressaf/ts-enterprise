@@ -1,5 +1,4 @@
 import pandas as pd
-
 from sktime.forecasting.base import BaseForecaster, ForecastingHorizon
 
 from megatron.transformers import (
@@ -7,20 +6,22 @@ from megatron.transformers import (
     ChangePointDetector,
     OutlierDetector,
     ExogenousDataTransformer,
-    Mapper, 
-    DemandClassifier
+    Mapper,
+    DemandClassifier,
 )
 from megatron.clusterers import (
     SmoothErraticClusterer,
     IntermittentLumpyClusterer,
 )
 from megatron.forecasters import CommonForecaster
+import megatron.config as config
 
 from pathlib import Path
 from joblib import dump, load
-import megatron.config as config
 
 
+# The full pipeline with data transformation, clustering and forecasting stages 
+# which depends on detected demand class
 class CommonPipeline(BaseForecaster):
     _tags = {
         "y_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
@@ -112,6 +113,7 @@ class CommonPipeline(BaseForecaster):
 
         print(f"{self.value.capitalize()} {self.demand} clusterer successfully fitted!")
 
+        # forecasting
         self.forecaster = CommonForecaster(
             dir_path=self.dir_path, value=self.value, demand=self.demand
         )
@@ -139,6 +141,8 @@ class CommonPipeline(BaseForecaster):
         return self.forecaster.predict(X=X, fh=fh).droplevel(0)  # type: ignore
 
 
+# The start point of the whole pipeline which detects demand class per series 
+# and then split the data into subsets with corresponding pipeline to fit
 class E2EForecaster(BaseForecaster):
     _tags = {
         "y_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
@@ -157,9 +161,10 @@ class E2EForecaster(BaseForecaster):
 
     def _fit(self, y, X=None, fh=None):
         self.value, self.index = y.columns[0], y.droplevel(-1).index.names
-        fh = ForecastingHorizon(
-            values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"  # type: ignore
-        )
+        if fh is not None:
+            fh = ForecastingHorizon(
+                values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"  # type: ignore
+            )
 
         y = y.sort_index()
         if X is not None:
@@ -192,9 +197,10 @@ class E2EForecaster(BaseForecaster):
             return self
 
     def _predict(self, fh, X=None):
-        fh = ForecastingHorizon(
-            values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"  # type: ignore
-        )
+        if fh is not None:
+            fh = ForecastingHorizon(
+                values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"  # type: ignore
+            )
 
         if X is not None:
             X = self.mapper.transform(X.sort_index())

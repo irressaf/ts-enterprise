@@ -7,19 +7,16 @@ from joblib import Parallel, delayed, dump, load, cpu_count
 from tqdm_joblib import ParallelPbar
 import warnings
 
-from megatron.forecasters import (
-    il_complex_global,
-    il_simplex_global,
-    il_simplex_local,
-    se_complex_global,
-    se_simplex_global,
-    se_simplex_local,
-    scoring,
-)
+from .il_models import il_complex_global, il_simplex_global, il_simplex_local
+from .se_models import scoring, se_complex_global, se_simplex_global, se_simplex_local
 
 warnings.filterwarnings("ignore")
 
 
+# Forecasting structure with ability to select the forecasting model based on the demand 
+# class and cluster size. The models are fitted separately and simultaneously for each 
+# cluster or series and saved on disk to avoid unexpected fitting, respective long time 
+# consuming and sudden data erases.
 class CommonForecaster(BaseForecaster):
     _tags = {
         "y_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],

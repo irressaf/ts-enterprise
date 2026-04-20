@@ -1,6 +1,5 @@
 import numpy as np
 from itertools import product
-
 from optuna.samplers import TPESampler
 from optuna.distributions import (
     IntDistribution,
@@ -8,16 +7,15 @@ from optuna.distributions import (
     CategoricalDistribution,
 )
 
+from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.preprocessing import StandardScaler, TargetEncoder
+from sklearn.metrics import root_mean_squared_log_error
+
 from lightgbm import LGBMRegressor
 from sklearn.linear_model import ElasticNet
 from sktime.forecasting.fbprophet import Prophet
 from sktime.forecasting.sarimax import SARIMAX
 from sktime.forecasting.statsforecast import StatsForecastAutoTheta
-
-from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.preprocessing import StandardScaler, TargetEncoder
-from sklearn.metrics import root_mean_squared_log_error
-
 from sktime.performance_metrics.forecasting import make_forecasting_scorer
 from sktime.split import ExpandingGreedySplitter
 from sktime.forecasting.model_selection import ForecastingOptunaSearchCV
@@ -39,6 +37,8 @@ scoring = make_forecasting_scorer(root_mean_squared_log_error, name="RMSLE")
 cv = ExpandingGreedySplitter(test_size=config.FH_SIZE, folds=1)  # type: ignore
 
 
+# Wrapper for global forecasting models with ability to add target encoding and
+# sample weights as tuning parameters
 class GlobalModelWrapper(BaseEstimator, RegressorMixin):
     def __init__(self, estimator, enable_target_encoding=False, enable_weights=False):
         self.estimator = estimator
@@ -94,6 +94,8 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
         return self.estimator_.predict(X).clip(min=0)
 
 
+# Global forecasting structure with ability to tune the parameters of selected estimator
+# using standard optuna strategy and cross validation
 se_complex_global = ForecastingOptunaSearchCV(
     forecaster=make_reduction(
         estimator=GlobalModelWrapper(
@@ -198,6 +200,8 @@ se_simplex_global = ForecastingOptunaSearchCV(
 )
 
 
+# Wrapper for local (per series) forecasting models with ability to add target encoding and
+# sample weights as tuning parameters
 class LocalModelWrapper(BaseForecaster):
     def __init__(self, estimator, whether_to_use_X=False, drop_holiday_flag=False):
         self.estimator = estimator
@@ -248,6 +252,9 @@ class LocalModelWrapper(BaseForecaster):
         ).clip(lower=0)
 
 
+# Local forecasting structure with best of three constant models selection based 
+# on the validation performance
+# The fallback model also considers if default one fails during fit or predict
 se_simplex_local = ForecastingOptunaSearchCV(
     forecaster=MultiplexForecaster(
         forecasters=[

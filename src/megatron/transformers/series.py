@@ -108,6 +108,9 @@ class ChangePointDetector(BaseTransformer):
             return self._cpd(X.droplevel(0))
 
 
+# Outlier detection with a specific demand class strategy: for smooth and erratic
+# series isolation forest is used, while for intermittent and lumpy series z-score
+# with MAD modification is applied.
 class OutlierDetector(BaseTransformer):
     _tags = {
         "X_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
@@ -186,6 +189,7 @@ class OutlierDetector(BaseTransformer):
             return self._od(X.droplevel(0))
 
 
+# Transformer with data index categorical features extraction
 class ExogenousDataTransformer(BaseTransformer):
     _tags = {
         "X_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],

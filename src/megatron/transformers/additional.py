@@ -39,6 +39,8 @@ class Mapper(BaseTransformer):
         return X.join(temp).reset_index(self.index[-1:]).set_index(self.index)
 
 
+# The start processings to process and filter input raw data before forecssting
+# pipeline stages
 class InitialPreprocessing:
     def __init__(self, w: int):
         self.w = w
@@ -61,6 +63,8 @@ class InitialPreprocessing:
         return X.loc[temp[temp.lt(self.w)].index]
 
 
+# Transformer which classifies each series demand via default ADI and CV2 constants
+# into 4 classes: smooth, erratic, intermittent and lumpy
 class DemandClassifier(BaseTransformer):
     _tags = {
         "X_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
@@ -95,6 +99,8 @@ class DemandClassifier(BaseTransformer):
         return temp
 
 
+# Custom feature engineering for intermittent and lumpy demand with 22 most
+# meaningful metrics
 def catch22_custom(x, w: int) -> list[float]:
     x, n = np.asarray(x, dtype=float), len(x)
 
@@ -208,6 +214,8 @@ def catch22_custom(x, w: int) -> list[float]:
     ]
 
 
+# Custom rolling functions used to create features for global intermittent and lumpy
+# forecasting models
 def b_mad(x):
     return sp.median_abs_deviation(x)
 

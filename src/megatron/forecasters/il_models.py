@@ -39,6 +39,9 @@ from megatron.forecasters.se_models import scoring, cv
 import megatron.config as config
 
 
+# Model class that combines two separate models: a classifier to predict the demand
+# occurence probability and a regressor to predict the magnitude of its positive demand.
+# The final prediction is the product of the occurence probability and the demand magnitude
 class HurdleModel(BaseEstimator, RegressorMixin):
     def __init__(self, classifier, regressor):
         self.classifier = classifier
@@ -99,10 +102,14 @@ class HurdleModel(BaseEstimator, RegressorMixin):
             X[self.cat_features] = self.encoder.transform(X[self.cat_features])
 
         p = self.classifier_.predict_proba(X[self.c_features])[:, 1]
-        v = self.regressor_.predict(X[self.r_features]).clip(min=0)
+        v = self.regressor_.predict(X[self.r_features]).clip(
+            min=0
+        )  # the dot product cannot be negative
         return p * v
 
 
+# Custom global forecaster with direct multi-step training strategy inside with
+# arbitrary input estimator
 class DirectGlobalForecaster(BaseForecaster):
     _tags = {
         "y_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
@@ -118,18 +125,18 @@ class DirectGlobalForecaster(BaseForecaster):
         self.enable_weights = enable_weights
         self.summarizer = WindowSummarizer(
             lag_feature={
-                "lag": [1, 2, 3, self.w],  # type: ignore
-                b_median: [[1, self.w]],  # type: ignore
-                b_mad: [[1, self.w]],  # type: ignore
+                "lag": [1, 2, 3, self.w],
+                b_median: [[1, self.w]],
+                b_mad: [[1, self.w]],
                 c_occ_last: [[1, 1]],
-                c_occ_rate: [[1, self.w]],  # type: ignore
-                c_occ_count: [[1, self.w]],  # type: ignore
-                c_non_occ_head: [[1, self.w]],  # type: ignore
-                c_non_occ_tail: [[1, self.w]],  # type: ignore
-                r_pos_last: [[1, self.w]],  # type: ignore
-                r_pos_mean: [[1, self.w]],  # type: ignore
-                r_pos_std: [[1, self.w]],  # type: ignore
-                r_pos_sum: [[1, self.w]],  # type: ignore
+                c_occ_rate: [[1, self.w]],
+                c_occ_count: [[1, self.w]],
+                c_non_occ_head: [[1, self.w]],
+                c_non_occ_tail: [[1, self.w]],
+                r_pos_last: [[1, self.w]],
+                r_pos_mean: [[1, self.w]],
+                r_pos_std: [[1, self.w]],
+                r_pos_sum: [[1, self.w]],
             },
             n_jobs=1,
         )
@@ -201,6 +208,8 @@ class DirectGlobalForecaster(BaseForecaster):
             return pd.concat(forecasts).sort_index()
 
 
+# Global forecasting structure with ability to tune the parameters of selected estimator
+# using standard optuna strategy and cross validation
 il_complex_global = ForecastingOptunaSearchCV(
     forecaster=DirectGlobalForecaster(
         estimator=LGBMRegressor(subsample_freq=1, n_jobs=1, verbose=-1),
@@ -245,6 +254,8 @@ il_simplex_global = ForecastingOptunaSearchCV(
     verbose=-1,
 )
 
+# Most primitive per series forecasting structure with best of three
+# constant models selection based on the validation performance
 il_simplex_local = ForecastingOptunaSearchCV(
     forecaster=MultiplexForecaster(
         forecasters=[

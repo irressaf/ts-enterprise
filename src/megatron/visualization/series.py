@@ -9,10 +9,11 @@ from megatron.transformers import (
     PlateauDetector,
     OutlierDetector,
 )
-
 import megatron.config as config
 
 
+# Plots a random series from each demand class in the data
+# Only if demand is specified as 0-level index
 def classifiedSeriesPlot(
     data: pd.DataFrame,
     title="",
@@ -58,6 +59,8 @@ def classifiedSeriesPlot(
         plt.show()
 
 
+# Plots specific number of random series from the data with optional detection tasks
+# and demand class
 def seriesPlot(
     data: pd.DataFrame,
     demand="",
@@ -163,6 +166,7 @@ def seriesPlot(
         plt.show()
 
 
+# Plots all clusters with its series only if cluster is defined as 0-level index
 def clusteredSeriesPlot(data: pd.DataFrame, title="", line_width=1.5):
     index, value = data.index.names, data.columns[0]
     clusters = data.index.get_level_values(0).unique()
@@ -203,6 +207,8 @@ def clusteredSeriesPlot(data: pd.DataFrame, title="", line_width=1.5):
         plt.show()
 
 
+# Plots specific number of random series from the data with train and forecast demand
+# Only if forecast group is defined
 def forecastedSeriesPlot(
     data: pd.DataFrame,
     group="group",
