@@ -7,7 +7,6 @@ name = "megatron"
 version = "1.0.0"
 description = "Time series forecasting toolkit"
 requires-python = ">=3.13"
-license = { text = "MIT" }
 authors = [{ name = "Andrei Safonov", email = "andrei.saf.uk@gmail.com" }]
 keywords = ["timeseries", "forecasting", "python"]
 dependencies = [
