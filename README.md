@@ -1,6 +1,8 @@
 <!-- markdownlint-disable MD033 MD041 -->
 
-<h1 align="center">Time Series Toolkit</h1>
+<p align="center">
+  <img src="docs/megatron.png" alt="Megatron" width="150">
+</p>
 
 <p align="center">
   <a href="#quick-start"><img src="https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white" alt="Python"></a>
@@ -8,11 +10,7 @@
   <a href="#test"><img src="https://img.shields.io/badge/coverage-88%25-2EA043" alt="Coverage"></a>
 </p>
 
-<p align="center">
-  <img src="docs/megatron.png" alt="Megatron" width="150">
-</p>
-
-## About
+# Time Series Toolkit
 
 <p align="justify">
 <strong>Megatron</strong> is a Python package that provides a set of stepwise tools for processing, clustering and forecasting multiple time series. It also proposes several level orchestration modules to continuously perform an end-to-end workflow.
@@ -202,7 +200,7 @@ Therefore instead of fitting a forecaster per series (<code>1638</code> time ser
 
 ### Kaggle achievements
 
-As of latest submission the result was placed in leaderboard top `7%` :scream: :exploding_head: 
+As of latest submission the result was placed in leaderboard top `7%` :scream: :exploding_head:
 Thanks for **megatron** package :stuck_out_tongue_winking_eye:
 
 ## Future work
@@ -210,7 +208,9 @@ Thanks for **megatron** package :stuck_out_tongue_winking_eye:
 <div align="justify">
   <p>Here're several orchestration structure enhancements and computational components logic exploration to start with:</p>
     <ul>
-      <li>a;
-      <li>b;
-      <li>c.
+      <li>tryout different and more precise clustering algorithms instead of <code>KMeans()</code>, so the more clusters are homogenous the better global models quality in average is;
+      <li>run some DL-algorithms for giant clusters in order to compare metrics with ensembles;
+      <li>instead of multithreading usage within each demand class separately refresh <code>E2EForecaster()</code> structure in purpose of fitting models per cluster as much as available threads regardless its demand class, thus there're no free threads til the end of training;
+      <li>unload the local machine attempting to link the remote ones for immerse clusters fitting, therefore its possible to accelerate training process instantly with an additional external number or cores;
+      <li>add more unit and integration tests with an eye to cover the remaining modules and decrease the vulnerability in overall accordingly.
 </div>
