@@ -1,7 +1,5 @@
 import numpy as np
-import pandas as pd
 from itertools import product
-
 from optuna.samplers import TPESampler
 from optuna.distributions import (
     IntDistribution,
@@ -9,17 +7,15 @@ from optuna.distributions import (
     CategoricalDistribution,
 )
 
+from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.preprocessing import StandardScaler, TargetEncoder
+from sklearn.metrics import root_mean_squared_log_error
+
 from lightgbm import LGBMRegressor
 from sklearn.linear_model import ElasticNet
 from sktime.forecasting.fbprophet import Prophet
 from sktime.forecasting.sarimax import SARIMAX
 from sktime.forecasting.statsforecast import StatsForecastAutoTheta
-
-from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import root_mean_squared_log_error
-from sklearn.preprocessing import TargetEncoder
-
 from sktime.performance_metrics.forecasting import make_forecasting_scorer
 from sktime.split import ExpandingGreedySplitter
 from sktime.forecasting.model_selection import ForecastingOptunaSearchCV
@@ -31,18 +27,18 @@ from sktime.forecasting.compose import (
 from sktime.transformations.series.summarize import WindowSummarizer
 from sktime.forecasting.base import BaseForecaster
 
-from pathlib import Path
-from joblib import Parallel, delayed, dump, load
-from tqdm_joblib import ParallelPbar
-import warnings
 import megatron.config as config
+import warnings
 
 warnings.filterwarnings("ignore")
 
-rmsle = make_forecasting_scorer(root_mean_squared_log_error, name="RMSLE")
-cv = ExpandingGreedySplitter(test_size=config.FH_SIZE, folds=1)
+
+scoring = make_forecasting_scorer(root_mean_squared_log_error, name="RMSLE")
+cv = ExpandingGreedySplitter(test_size=config.FH_SIZE, folds=1)  # type: ignore
 
 
+# Wrapper for global forecasting models with ability to add target encoding and
+# sample weights as tuning parameters
 class GlobalModelWrapper(BaseEstimator, RegressorMixin):
     def __init__(self, estimator, enable_target_encoding=False, enable_weights=False):
         self.estimator = estimator
@@ -51,8 +47,8 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
 
         super().__init__()
 
-    def _hyperbolic(self, x):
-        return (1 / x.shape[0] ** 0.5) * (1 / (1 - np.linspace(0.1, 0.99, x.shape[0])))
+    def _linear(self, x):
+        return (1 / x.shape[0] ** 0.5) * np.linspace(0.1, 0.99, x.shape[0])
 
     def fit(self, X, y, **kwargs):
         self.estimator_, weights = clone(self.estimator), None
@@ -61,7 +57,7 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
         if self.enable_weights:
             weights = np.concatenate(
                 X.groupby(X.index.names[:-1])
-                .apply(lambda x: self._hyperbolic(x[[]]))
+                .apply(lambda x: self._linear(x[[]]))
                 .tolist()
             )
 
@@ -72,7 +68,9 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
             s = X.drop(columns=["target"]).nunique()
             self.c_features = list(s[s.between(3, 31)].index)
 
-            self.encoder = TargetEncoder(smooth=1, random_state=config.SEED)
+            self.encoder = TargetEncoder(
+                smooth=1, random_state=config.SEED, target_type="continuous"  # type: ignore
+            )
             X[self.c_features] = self.encoder.fit_transform(
                 X[self.c_features], X["target"]
             )
@@ -84,6 +82,7 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
         y = X["target"]
         X = X.drop(columns=["target"])
         self.features_ = list(X.columns)
+
         return self.estimator_.fit(X=X, y=y, sample_weight=weights, **kwargs)
 
     def predict(self, X):
@@ -95,9 +94,13 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
         return self.estimator_.predict(X).clip(min=0)
 
 
-complex_global = ForecastingOptunaSearchCV(
+# Global forecasting structure with ability to tune the parameters of selected estimator
+# using standard optuna strategy and cross validation
+se_complex_global = ForecastingOptunaSearchCV(
     forecaster=make_reduction(
-        GlobalModelWrapper(LGBMRegressor(subsample_freq=1, n_jobs=1, verbose=-1)),
+        estimator=GlobalModelWrapper(
+            LGBMRegressor(subsample_freq=1, n_jobs=1, verbose=-1)
+        ),
         transformers=[
             WindowSummarizer(
                 lag_feature={
@@ -108,32 +111,32 @@ complex_global = ForecastingOptunaSearchCV(
                         4,
                         5,
                         6,
-                        config.SEASONAL_PERIOD,
-                        2 * config.SEASONAL_PERIOD,
-                        3 * config.SEASONAL_PERIOD,
-                        4 * config.SEASONAL_PERIOD,
+                        config.SEASONAL_PERIOD,  # type: ignore
+                        2 * config.SEASONAL_PERIOD,  # type: ignore
+                        3 * config.SEASONAL_PERIOD,  # type: ignore
+                        4 * config.SEASONAL_PERIOD,  # type: ignore
                     ],
                     "mean": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
-                        [1, 4 * config.SEASONAL_PERIOD],
+                        [1, config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 2 * config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 4 * config.SEASONAL_PERIOD],  # type: ignore
                     ],
                     "std": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
-                        [1, 4 * config.SEASONAL_PERIOD],
+                        [1, config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 2 * config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 4 * config.SEASONAL_PERIOD],  # type: ignore
                     ],
                     "sum": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
+                        [1, config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 2 * config.SEASONAL_PERIOD],  # type: ignore
                     ],
                     "max": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
+                        [1, config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 2 * config.SEASONAL_PERIOD],  # type: ignore
                     ],
                     "min": [
-                        [1, config.SEASONAL_PERIOD],
-                        [1, 2 * config.SEASONAL_PERIOD],
+                        [1, config.SEASONAL_PERIOD],  # type: ignore
+                        [1, 2 * config.SEASONAL_PERIOD],  # type: ignore
                     ],
                 },
                 n_jobs=1,
@@ -146,38 +149,38 @@ complex_global = ForecastingOptunaSearchCV(
     param_grid={
         "estimator__enable_target_encoding": CategoricalDistribution([True, False]),
         "estimator__enable_weights": CategoricalDistribution([True, False]),
-        "estimator__estimator__boosting_type": CategoricalDistribution(
-            ["gbdt", "dart", "rf"]
+        "estimator__estimator__objective": CategoricalDistribution(
+            ["regression", "regression_l1", "huber", "fair", "mape"]
         ),
+        "estimator__estimator__boosting_type": CategoricalDistribution(["gbdt", "rf"]),
         "estimator__estimator__n_estimators": IntDistribution(100, 1000),
-        "estimator__estimator__learning_rate": FloatDistribution(0.005, 0.5),
+        "estimator__estimator__learning_rate": FloatDistribution(0.005, 0.3),
         "estimator__estimator__max_depth": IntDistribution(2, 7),
         "estimator__estimator__subsample": FloatDistribution(0.6, 1),
         "estimator__estimator__colsample_bytree": FloatDistribution(0.5, 1),
         "estimator__estimator__reg_alpha": FloatDistribution(0, 10),
         "estimator__estimator__reg_lambda": FloatDistribution(0, 10),
     },
-    scoring=rmsle,
-    error_score="raise",  # type: ignore
-    sampler=TPESampler(seed=config.SEED),
+    scoring=scoring,
+    sampler=TPESampler(seed=config.SEED),  # type: ignore
     verbose=-1,
 )
 
-simplex_global = ForecastingOptunaSearchCV(
+se_simplex_global = ForecastingOptunaSearchCV(
     forecaster=make_reduction(
-        GlobalModelWrapper(ElasticNet(), enable_target_encoding=True),
+        estimator=GlobalModelWrapper(ElasticNet(), enable_target_encoding=True),
         transformers=[
             WindowSummarizer(
                 lag_feature={
                     "lag": [
                         1,
-                        config.SEASONAL_PERIOD,
-                        2 * config.SEASONAL_PERIOD,
-                        4 * config.SEASONAL_PERIOD,
+                        config.SEASONAL_PERIOD,  # type: ignore
+                        2 * config.SEASONAL_PERIOD,  # type: ignore
+                        4 * config.SEASONAL_PERIOD,  # type: ignore
                     ],
-                    "mean": [[1, 4 * config.SEASONAL_PERIOD]],
-                    "std": [[1, 4 * config.SEASONAL_PERIOD]],
-                    "sum": [[1, config.SEASONAL_PERIOD]],
+                    "mean": [[1, 4 * config.SEASONAL_PERIOD]],  # type: ignore
+                    "std": [[1, 4 * config.SEASONAL_PERIOD]],  # type: ignore
+                    "sum": [[1, config.SEASONAL_PERIOD]],  # type: ignore
                 },
                 n_jobs=1,
             )
@@ -187,16 +190,18 @@ simplex_global = ForecastingOptunaSearchCV(
     ),
     cv=cv,
     param_grid={
+        "estimator__enable_weights": CategoricalDistribution([True, False]),
         "estimator__estimator__alpha": FloatDistribution(0.01, 15),
         "estimator__estimator__l1_ratio": FloatDistribution(0.01, 1),
     },
-    scoring=rmsle,
-    error_score="raise",  # type: ignore
-    sampler=TPESampler(seed=config.SEED),
+    scoring=scoring,
+    sampler=TPESampler(seed=config.SEED),  # type: ignore
     verbose=-1,
 )
 
 
+# Wrapper for local (per series) forecasting models with ability to add target encoding and
+# sample weights as tuning parameters
 class LocalModelWrapper(BaseForecaster):
     def __init__(self, estimator, whether_to_use_X=False, drop_holiday_flag=False):
         self.estimator = estimator
@@ -219,7 +224,7 @@ class LocalModelWrapper(BaseForecaster):
             s = X.drop(columns=["target"]).nunique()
             self.c_features = list(s[s.between(3, 31)].index)
 
-            self.encoder = TargetEncoder(smooth=1, random_state=config.SEED)
+            self.encoder = TargetEncoder(smooth=1, random_state=config.SEED)  # type: ignore
             X[self.c_features] = self.encoder.fit_transform(
                 X[self.c_features], X["target"]
             )
@@ -247,7 +252,10 @@ class LocalModelWrapper(BaseForecaster):
         ).clip(lower=0)
 
 
-complex_local = ForecastingOptunaSearchCV(
+# Local forecasting structure with best of three constant models selection based 
+# on the validation performance
+# The fallback model also considers if default one fails during fit or predict
+se_simplex_local = ForecastingOptunaSearchCV(
     forecaster=MultiplexForecaster(
         forecasters=[
             (
@@ -259,7 +267,7 @@ complex_local = ForecastingOptunaSearchCV(
                             LocalModelWrapper(
                                 estimator=Prophet(
                                     add_country_holidays={
-                                        "country_name": config.COUNTRY
+                                        "country_name": config.COUNTRY  # type: ignore
                                     },
                                     weekly_seasonality=True,  # type: ignore
                                     verbose=-1,
@@ -271,7 +279,7 @@ complex_local = ForecastingOptunaSearchCV(
                             "theta",
                             LocalModelWrapper(
                                 estimator=StatsForecastAutoTheta(
-                                    season_length=config.SEASONAL_PERIOD
+                                    season_length=config.SEASONAL_PERIOD  # type: ignore
                                 ),
                                 whether_to_use_X=False,
                             ),
@@ -288,7 +296,7 @@ complex_local = ForecastingOptunaSearchCV(
                             "theta",
                             LocalModelWrapper(
                                 estimator=StatsForecastAutoTheta(
-                                    season_length=config.SEASONAL_PERIOD
+                                    season_length=config.SEASONAL_PERIOD  # type: ignore
                                 ),
                                 whether_to_use_X=False,
                             ),
@@ -336,120 +344,7 @@ complex_local = ForecastingOptunaSearchCV(
             ["STM", "OTM", "DSTM", "DOTM"]
         ),
     },
-    scoring=rmsle,
-    error_score="raise",  # type: ignore
-    sampler=TPESampler(seed=config.SEED),
+    scoring=scoring,
+    sampler=TPESampler(seed=config.SEED),  # type: ignore
     verbose=-1,
 )
-
-
-class SmoothErraticForecaster(BaseForecaster):
-    _tags = {
-        "y_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
-        "X_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
-        "scitype:transform-input": "Dataframe",
-        "scitype:transform-output": "Dataframe",
-    }
-
-    def __init__(self, dir_path: Path, value: str, demand: str, n_jobs=-1):
-        self.dir_path = dir_path
-        self.value = value
-        self.demand = demand
-        self.n_jobs = n_jobs
-        self.pipelines = {
-            "complex_global": complex_global,
-            "simplex_global": simplex_global,
-            "complex_local": complex_local,
-        }
-        self.models = {}
-
-        super().__init__()
-
-    def _fit_per_instance(self, index, fh):
-        import warnings, cmdstanpy, logging
-        from statsmodels.tools.sm_exceptions import ConvergenceWarning
-
-        logging.getLogger("statsmodels").setLevel(logging.ERROR)
-        logging.getLogger("prophet").setLevel(logging.ERROR)
-        logging.getLogger("optuna").setLevel(logging.ERROR)
-        warnings.simplefilter("ignore", ConvergenceWarning)
-        cmdstanpy.disable_logging()
-
-        model = clone(self.pipelines[self.models[index]])  # type: ignore
-        path = self.dir_path / (
-            "_".join(
-                [
-                    self.value,
-                    self.demand,
-                    model.get_tag("object_type"),
-                    "cluster",
-                    "_".join([str(x) for x in index]),
-                ]
-            )
-            + ".joblib"
-        )
-
-        if not Path.is_file(path):
-            if len(index) == 1:
-                y_temp = self.y_.loc[index]
-                X_temp = None if self.X_ is None else self.X_.loc[index]
-            else:
-                y_temp = self.y_.loc[index[0]].loc[[index[-1]]]
-                X_temp = (
-                    None if self.X_ is None else self.X_.loc[index[0]].loc[[index[-1]]]
-                )
-
-            model.fit(y=y_temp, X=X_temp, fh=fh)
-            dump({"model": model.best_forecaster_, "score": model.best_score_}, path)
-            print(
-                f"{path.relative_to(self.dir_path)} best {rmsle.name} score: {round(model.best_score_, 3)}"
-            )
-
-        return index, path
-
-    def _fit(self, y, X=None, fh=None):
-        self.y_, self.X_ = y, X
-
-        for cluster in self.y_.index.get_level_values(0).unique():
-            if self.y_.loc[cluster].shape[0] >= 1e4:
-                self.models[tuple([cluster])] = "complex_global"
-            elif self.y_.loc[cluster].shape[0] >= 1e3:
-                self.models[tuple([cluster])] = "simplex_global"
-            else:
-                for item in self.y_.loc[cluster].index.get_level_values(0).unique():
-                    self.models[tuple([cluster, item])] = "complex_local"
-
-        temp = ParallelPbar(
-            desc=f"Successfully fitted {self.value} {self.demand} models",
-        )(n_jobs=self.n_jobs)(
-            delayed(self._fit_per_instance)(index, fh) for index in self.models
-        )
-
-        for index, path in temp:  # type: ignore
-            self.models[index] = path
-
-        self.mapper = self.y_[~self.y_.droplevel(-1).index.duplicated(keep="first")][
-            []
-        ].droplevel(-1)
-        del self.y_, self.X_
-        return self
-
-    def _predict_per_instance(self, index, fh):
-        obj = load(self.models[index])
-        if len(index) == 1:
-            X_temp = None if self.X_ is None else self.X_.loc[index]
-        else:
-            X_temp = None if self.X_ is None else self.X_.loc[index[0]].loc[[index[-1]]]
-        return obj["model"].predict(X=X_temp, fh=fh)
-
-    def _predict(self, fh, X=None):
-        self.X_ = X
-
-        temp = pd.concat(
-            Parallel(n_jobs=self.n_jobs)(
-                delayed(self._predict_per_instance)(index, fh) for index in self.models
-            )
-        )
-        del self.X_
-
-        return self.mapper.join(temp)

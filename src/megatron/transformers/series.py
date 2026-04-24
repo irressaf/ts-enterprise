@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
+import scipy.stats as sp
 import ruptures as rpt
 from holidays import country_holidays
-
 from pyod.models.iforest import IForest
 
 from sktime.transformations.base import BaseTransformer
@@ -108,15 +108,22 @@ class ChangePointDetector(BaseTransformer):
             return self._cpd(X.droplevel(0))
 
 
+# Outlier detection with a specific demand class strategy: for smooth and erratic
+# series isolation forest is used, while for intermittent and lumpy series z-score
+# with MAD modification is applied.
 class OutlierDetector(BaseTransformer):
     _tags = {
         "X_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
-        "transform-returns-same-time-index": False,
         "scitype:transform-output": "Dataframe",
     }
 
-    def __init__(self, truncate=False, n_jobs=-1):
+    def __init__(
+        self, demand: str, exog_column=None, truncate=False, seed=config.SEED, n_jobs=-1  # type: ignore
+    ):
+        self.demand = demand
+        self.exog_column = exog_column
         self.truncate = truncate
+        self.seed = seed
         self.n_jobs = n_jobs
 
         super().__init__()
@@ -124,11 +131,25 @@ class OutlierDetector(BaseTransformer):
     def _od(self, data: pd.DataFrame):
         temp, columns = data.dropna(), data.columns
 
-        no_holiday_mask = temp[columns[-1]].values  # type: ignore
-        model = IForest(contamination=0.05, behaviour="new", random_state=42)
-        model.fit(temp[[columns[0]]].values)
-        outlier_mask = model.predict(temp[[columns[0]]].values).astype(bool)  # type: ignore
-        mask = no_holiday_mask & outlier_mask
+        if self.demand in ("smooth", "erratic"):
+            mask = temp[columns[-1]].values  # type: ignore
+            model = IForest(contamination=0.05, behaviour="new", random_state=self.seed)
+            model.fit(temp[[columns[0]]].values)
+            outlier_mask = model.predict(temp[[columns[0]]].values).astype(bool)  # type: ignore
+            mask &= outlier_mask
+        else:
+            mask = temp[columns[-1]].values
+            values = np.log(temp.loc[temp[columns[0]].gt(0), columns[0]])
+            mad = sp.median_abs_deviation(values, scale=1.4826)
+            mad = sp.iqr(values) / 1.349 if mad == 0 else mad
+
+            if mad > 0:
+                threshold = 3 if self.demand == "intermittent" else 4
+                values = (values - np.median(values)) / mad
+                outlier_mask = temp.index.isin(values.index[values.gt(threshold)])  # type: ignore
+                mask &= outlier_mask  # type: ignore
+            else:
+                mask = np.zeros(len(mask), dtype=bool)
 
         if self.truncate:
             data.loc[temp[mask].index, columns[0]] = np.nan
@@ -139,8 +160,8 @@ class OutlierDetector(BaseTransformer):
     def _transform(self, X, y=None):
         hf = HolidayFeatures(
             calendar=country_holidays(
-                country=config.COUNTRY,
-                years=[*range(config.MIN_DATE.year, config.MAX_DATE.year + 1)],
+                country=config.COUNTRY,  # type: ignore
+                years=[*range(config.MIN_DATE.year, config.MAX_DATE.year + 1)],  # type: ignore
             ),
             include_bridge_days=True,
             return_dummies=False,
@@ -148,10 +169,16 @@ class OutlierDetector(BaseTransformer):
         )
         temp = pd.DataFrame(
             index=pd.Index(
-                pd.date_range(config.MIN_DATE, config.MAX_DATE), name=X.index.names[-1]
+                pd.date_range(config.MIN_DATE, config.MAX_DATE), name=X.index.names[-1]  # type: ignore
             )
         )
-        X = X.join(~hf.fit_transform(temp).astype(bool))  # type: ignore
+        temp = ~hf.fit_transform(temp).astype(bool)  # type: ignore
+        temp = temp[temp.columns[0]]
+
+        if self.exog_column is not None:
+            temp = temp & ~X[self.exog_column].astype(bool)
+            X = X[X.columns[0]].to_frame()
+        X = X.join(temp.rename("mask"))
 
         if self.truncate:
             index = X.droplevel(-1).index.names
@@ -162,6 +189,7 @@ class OutlierDetector(BaseTransformer):
             return self._od(X.droplevel(0))
 
 
+# Transformer with data index categorical features extraction
 class ExogenousDataTransformer(BaseTransformer):
     _tags = {
         "X_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
@@ -176,13 +204,17 @@ class ExogenousDataTransformer(BaseTransformer):
     def _wageDateFlag(self, data: pd.DataFrame):
         wage = pd.DataFrame(
             {
-                "date": pd.date_range(config.MIN_DATE, config.MAX_DATE, freq="SME"),
+                "date": pd.date_range(config.MIN_DATE, config.MAX_DATE, freq="SME"),  # type: ignore
                 "is_wage": 1,
             }
         ).set_index("date")
         return data.join(wage).fillna(0).astype(int)
 
     def _fit(self, X, y=None):
+        import warnings
+
+        warnings.filterwarnings("ignore")
+
         self.date_time_transformer = DateTimeFeatures(
             manual_selection=[
                 "month_of_year",
@@ -194,8 +226,8 @@ class ExogenousDataTransformer(BaseTransformer):
         )
         self.holidays_transformer = HolidayFeatures(
             calendar=country_holidays(
-                country=config.COUNTRY,
-                years=[*range(config.MIN_DATE.year, config.MAX_DATE.year + 1)],
+                country=config.COUNTRY,  # type: ignore
+                years=[*range(config.MIN_DATE.year, config.MAX_DATE.year + 1)],  # type: ignore
             ),
             include_bridge_days=True,
             return_dummies=False,
@@ -208,8 +240,12 @@ class ExogenousDataTransformer(BaseTransformer):
         return self
 
     def _transform(self, X, y=None):
+        import warnings
+
+        warnings.filterwarnings("ignore")
+
         temp = pd.DataFrame(
-            index=pd.Index(pd.date_range(config.MIN_DATE, config.MAX_DATE), name="date")
+            index=pd.Index(pd.date_range(config.MIN_DATE, config.MAX_DATE), name="date")  # type: ignore
         )
         temp = self.date_time_transformer.fit_transform(temp)
         temp = self.holidays_transformer.fit_transform(temp)

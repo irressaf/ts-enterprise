@@ -1,9 +1,10 @@
-.venv
-.DS_Store
-pycache/
 *.pyc
+.DS_Store
+.coverage
+
+.pytest_cache/
+__pycache__/
+.venv/
+data/
+models/
 .ipynb_checkpoints/
-data/external/*
-data/processed/*
-data/raw/*
-models/*

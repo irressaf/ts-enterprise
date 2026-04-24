@@ -1,23 +1,28 @@
 import pandas as pd
-
 from sktime.forecasting.base import BaseForecaster, ForecastingHorizon
 
-from megatron.transformers.series import (
+from megatron.transformers import (
     PlateauDetector,
     ChangePointDetector,
     OutlierDetector,
     ExogenousDataTransformer,
+    Mapper,
+    DemandClassifier,
 )
-from megatron.transformers.additional import Mapper, DemandClassifier
-from megatron.clusterers.series import SmoothErraticClusterer
-from megatron.forecasters.smooth_erratic import SmoothErraticForecaster
+from megatron.clusterers import (
+    SmoothErraticClusterer,
+    IntermittentLumpyClusterer,
+)
+from megatron.forecasters import CommonForecaster
+import megatron.config as config
 
 from pathlib import Path
 from joblib import dump, load
-import megatron.config as config
 
 
-class SmoothErraticPipeline(BaseForecaster):
+# The full pipeline with data transformation, clustering and forecasting stages 
+# which depends on detected demand class
+class CommonPipeline(BaseForecaster):
     _tags = {
         "y_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
         "X_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
@@ -36,22 +41,36 @@ class SmoothErraticPipeline(BaseForecaster):
     def _fit(self, y, X=None, fh=None):
         self.index = y.index.names
 
-        # plateau detection
-        pld = PlateauDetector(w=2 * config.SEASONAL_PERIOD, value=0, truncate=True)
-        y = pld.fit_transform(y)
+        if self.demand in ("smooth", "erratic"):
+            # plateau detection
+            pld = PlateauDetector(w=2 * config.SEASONAL_PERIOD, value=0, truncate=True)  # type: ignore
+            y = pld.fit_transform(y)
 
-        # change point detection
-        cpd = ChangePointDetector(w=config.MIN_LENGTH, truncate=True)
-        y = cpd.fit_transform(y)
+            # change point detection
+            cpd = ChangePointDetector(w=config.MIN_LENGTH, truncate=True)  # type: ignore
+            y = cpd.fit_transform(y)
 
         # outliers detection
-        od = OutlierDetector(truncate=True)
-        y = od.fit_transform(y)
+        if X is not None:
+            od = OutlierDetector(
+                demand=self.demand, exog_column="on_promotion", truncate=True
+            )
+            y = od.fit_transform(y.join(X))  # type: ignore
+        else:
+            od = OutlierDetector(demand=self.demand, truncate=True)
+            y = od.fit_transform(y)
 
         # fill missing values
-        y = y.groupby(self.index[0]).transform(  # type: ignore
-            lambda x: x.interpolate(method="linear").bfill().ffill()
-        )
+        if self.demand in ("smooth", "erratic"):
+            y = y.groupby(self.index[0]).transform(  # type: ignore
+                lambda x: x.interpolate(method="linear").bfill().ffill()
+            )
+        else:
+            y = y.groupby(y.droplevel(-1).index.names).transform(  # type: ignore
+                lambda x: x.fillna(
+                    x.rolling(window=config.SEASONAL_PERIOD, min_periods=1).median()  # type: ignore
+                ).fillna(0)
+            )
 
         # exogenous data transformation
         if X is not None:
@@ -62,8 +81,11 @@ class SmoothErraticPipeline(BaseForecaster):
             f"{self.value.capitalize()} {self.demand} series successfully transformed!"
         )
 
-        # clusterisation
-        self.clusterer = SmoothErraticClusterer(w=90)
+        # clustering
+        if self.demand in ("smooth", "erratic"):
+            self.clusterer = SmoothErraticClusterer(w=90)
+        else:
+            self.clusterer = IntermittentLumpyClusterer()
 
         path = self.dir_path / (
             "_".join([self.value, self.demand, self.clusterer.get_tag("object_type")])  # type: ignore
@@ -91,7 +113,8 @@ class SmoothErraticPipeline(BaseForecaster):
 
         print(f"{self.value.capitalize()} {self.demand} clusterer successfully fitted!")
 
-        self.forecaster = SmoothErraticForecaster(
+        # forecasting
+        self.forecaster = CommonForecaster(
             dir_path=self.dir_path, value=self.value, demand=self.demand
         )
         self.forecaster.fit(y=y, X=X, fh=fh)
@@ -118,6 +141,8 @@ class SmoothErraticPipeline(BaseForecaster):
         return self.forecaster.predict(X=X, fh=fh).droplevel(0)  # type: ignore
 
 
+# The start point of the whole pipeline which detects demand class per series 
+# and then split the data into subsets with corresponding pipeline to fit
 class E2EForecaster(BaseForecaster):
     _tags = {
         "y_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
@@ -135,10 +160,11 @@ class E2EForecaster(BaseForecaster):
         super().__init__()
 
     def _fit(self, y, X=None, fh=None):
-        self.value = y.columns[0]
-        fh = ForecastingHorizon(
-            values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"
-        )
+        self.value, self.index = y.columns[0], y.droplevel(-1).index.names
+        if fh is not None:
+            fh = ForecastingHorizon(
+                values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"  # type: ignore
+            )
 
         y = y.sort_index()
         if X is not None:
@@ -159,12 +185,9 @@ class E2EForecaster(BaseForecaster):
             X = y[[]].join(X)
 
         for demand in y.index.get_level_values(0).unique():
-            if demand in ("smooth", "erratic"):
-                self.models[demand] = SmoothErraticPipeline(
-                    dir_path=self.dir_path, value=self.value, demand=demand
-                )
-            else:
-                self.models[demand] = None
+            self.models[demand] = CommonPipeline(
+                dir_path=self.dir_path, value=self.value, demand=demand
+            )
 
         for demand in self.models:
             self.models[demand].fit(
@@ -174,6 +197,11 @@ class E2EForecaster(BaseForecaster):
             return self
 
     def _predict(self, fh, X=None):
+        if fh is not None:
+            fh = ForecastingHorizon(
+                values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"  # type: ignore
+            )
+
         if X is not None:
             X = self.mapper.transform(X.sort_index())
             X = (
@@ -185,7 +213,9 @@ class E2EForecaster(BaseForecaster):
         return self.mapper.inverse_transform(
             pd.concat(
                 [
-                    self.models[demand].predict(X=X.loc[demand] if X is not None else X, fh=fh)
+                    self.models[demand].predict(
+                        X=X.loc[demand] if X is not None else X, fh=fh
+                    )
                     for demand in self.models
                 ]
             ).sort_index()

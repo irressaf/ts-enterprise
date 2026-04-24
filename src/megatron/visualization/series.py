@@ -1,32 +1,79 @@
 import numpy as np
 import pandas as pd
 
-import plotly.express as px
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-from megatron.transformers.series import (
+from megatron.transformers import (
     ChangePointDetector,
     PlateauDetector,
     OutlierDetector,
 )
-
 import megatron.config as config
 
-px.defaults.width, px.defaults.height = 900, 500  # type: ignore
-margin, color = dict(l=30, r=30, t=50, b=30), "#1f77b4"
+
+# Plots a random series from each demand class in the data
+# Only if demand is specified as 0-level index
+def classifiedSeriesPlot(
+    data: pd.DataFrame,
+    title="",
+    seed=config.SEED,  # type: ignore
+    line_width=1.5,
+) -> None:
+    np.random.seed(seed)
+    index = data.index.get_level_values(0).unique()
+    n_rows, gap = len(index) // 2 if len(index) > 1 else 1, 50
+    height = max(n_rows * 250 + (n_rows - 1) * gap, config.FIG_HEIGHT)  # type: ignore
+    v_space = gap / height if n_rows > 1 else 0
+    plt = make_subplots(
+        rows=n_rows,
+        cols=2 if len(index) > 1 else 1,
+        subplot_titles=[str(x) for x in index],
+        horizontal_spacing=0.05,
+        vertical_spacing=v_space,
+    )
+
+    for i, instance in enumerate(index):
+        temp = data.loc[instance]
+        idx = np.random.choice(temp.index.get_level_values(0).unique())
+        temp = temp.loc[idx]
+
+        plt.add_trace(
+            go.Scatter(
+                x=temp.index,
+                y=temp.values.flatten(),
+                line={"width": line_width},  # type: ignore
+            ),
+            row=i // 2 + 1,
+            col=i % 2 + 1,
+        )
+
+    else:
+        plt.update_layout(
+            width=config.FIG_WIDTH,  # type: ignore
+            height=height,  # type: ignore
+            showlegend=False,
+            title={"text": title, "x": 0.5},
+            margin=config.MARGIN,  # type: ignore
+        )
+        plt.show()
 
 
+# Plots specific number of random series from the data with optional detection tasks
+# and demand class
 def seriesPlot(
     data: pd.DataFrame,
-    w=config.SEASONAL_PERIOD,
+    demand="",
+    X_exog=None,
+    exog_column=None,
+    w=config.SEASONAL_PERIOD,  # type: ignore
     n_series=1,
     title="",
     pld=False,
     pd_value=np.nan,
     cpd=False,
     od=False,
-    seed=42,
+    seed=config.SEED,  # type: ignore
     line_width=1.5,
 ) -> None:
 
@@ -43,12 +90,15 @@ def seriesPlot(
         )
         index = data.droplevel(-1).index.unique()
 
+    n_rows, gap = n_series // 2 if n_series > 1 else 1, 50
+    height = max(n_rows * 250 + (n_rows - 1) * gap, config.FIG_HEIGHT)  # type: ignore
+    v_space = gap / height if n_rows > 1 else 0
     plt = make_subplots(
-        rows=n_series // 2 if n_series > 1 else 1,
+        rows=n_rows,
         cols=2 if n_series > 1 else 1,
         subplot_titles=[str(x) for x in index],
         horizontal_spacing=0.05,
-        vertical_spacing=0.075,
+        vertical_spacing=v_space,
     )
 
     for i, instance in enumerate(index):
@@ -58,7 +108,7 @@ def seriesPlot(
             go.Scatter(
                 x=temp.index,
                 y=temp.values.flatten(),
-                line={"color": color, "width": line_width},
+                line={"color": config.COLOR, "width": line_width},  # type: ignore
             ),
             row=i // 2 + 1,
             col=i % 2 + 1,
@@ -91,7 +141,11 @@ def seriesPlot(
             )
 
         if od:
-            result = OutlierDetector().fit_transform(temp)  # type: ignore
+            if X_exog is not None:
+                temp = temp.join(X_exog.loc[instance], how="inner")
+            result = OutlierDetector(
+                demand=demand, exog_column=exog_column
+            ).fit_transform(temp)
             plt.add_scatter(
                 x=result.index,  # type: ignore
                 y=result.values.flatten(),  # type: ignore
@@ -103,9 +157,107 @@ def seriesPlot(
 
     else:
         plt.update_layout(
-            height=230 * n_series // 2 if n_series > 2 else 500,
+            width=config.FIG_WIDTH,  # type: ignore
+            height=height,  # type: ignore
             showlegend=False,
             title={"text": title, "x": 0.5},
-            margin=margin,
+            margin=config.MARGIN,  # type: ignore
         )
         plt.show()
+
+
+# Plots all clusters with its series only if cluster is defined as 0-level index
+def clusteredSeriesPlot(data: pd.DataFrame, title="", line_width=1.5):
+    index, value = data.index.names, data.columns[0]
+    clusters = data.index.get_level_values(0).unique()
+    n_rows = int(np.ceil(len(clusters) / 2))
+
+    n_rows, gap = len(clusters) // 2 if len(clusters) > 1 else 1, 50
+    height = max(n_rows * 250 + (n_rows - 1) * gap, config.FIG_HEIGHT)  # type: ignore
+    v_space = gap / height if n_rows > 1 else 0
+    plt = make_subplots(
+        rows=n_rows,
+        cols=2,
+        subplot_titles=[f"Cluster {x}" for x in clusters],
+        horizontal_spacing=0.05,
+        vertical_spacing=v_space,
+    )
+
+    for i, cluster in enumerate(clusters):
+        temp = data.loc[cluster].reset_index()
+
+        for _, temp_item in temp.groupby(index[1]):
+            plt.add_trace(
+                go.Scatter(
+                    x=temp_item[index[-1]],
+                    y=temp_item[value],
+                    line={"width": line_width},
+                ),
+                row=i // 2 + 1,
+                col=i % 2 + 1,
+            )
+    else:
+        plt.update_layout(
+            width=config.FIG_WIDTH,  # type: ignore
+            height=height,  # type: ignore
+            showlegend=False,
+            title={"text": title, "x": 0.5},
+            margin=config.MARGIN,  # type: ignore
+        )
+        plt.show()
+
+
+# Plots specific number of random series from the data with train and forecast demand
+# Only if forecast group is defined
+def forecastedSeriesPlot(
+    data: pd.DataFrame,
+    group="group",
+    n_series=1,
+    title="",
+    seed=config.SEED,  # type: ignore
+    line_width=1.5,
+) -> None:
+
+    value = data.columns[0]
+    np.random.seed(seed)
+    index = np.random.choice(
+        data.droplevel(-1).index.unique(), size=n_series, replace=False
+    )
+
+    n_rows, gap = n_series // 2 if n_series > 1 else 1, 50
+    height = max(n_rows * 250 + (n_rows - 1) * gap, config.FIG_HEIGHT)  # type: ignore
+    v_space = gap / height if n_rows > 1 else 0
+    plt = make_subplots(
+        rows=n_rows,
+        cols=2 if n_series > 1 else 1,
+        subplot_titles=[str(x) for x in index],
+        horizontal_spacing=0.05,
+        vertical_spacing=v_space,
+    )
+
+    colors = {"train": "#636EFA", "forecast": "#EF553B"}
+
+    for i, instance in enumerate(index):
+        temp = data.loc[instance].reset_index()
+
+        for g, temp_group in temp.groupby(group):
+            plt.add_trace(
+                go.Scatter(
+                    x=temp_group[data.index.names[-1]],
+                    y=temp_group[value],
+                    name=g,
+                    line={"width": line_width, "color": colors[g]},
+                    mode="lines",
+                ),
+                row=i // 2 + 1,
+                col=i % 2 + 1,
+            )
+
+    plt.update_layout(
+        width=config.FIG_WIDTH,  # type: ignore
+        height=height,  # type: ignore
+        showlegend=False,
+        title={"text": title, "x": 0.5},
+        margin=config.MARGIN,  # type: ignore
+    )
+    plt.show()

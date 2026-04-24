@@ -1,18 +1,19 @@
 import numpy as np
 import pandas as pd
 from itertools import combinations
-
 from pycatch22 import catch22_all
+from megatron.transformers.additional import catch22_custom
 
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score, adjusted_rand_score
-
 from sktime.clustering.base import BaseClusterer
 from sktime.distances import pairwise_distance
 
 from joblib import Parallel, delayed
-
 import megatron.config as config
+import warnings
+
+warnings.filterwarnings("ignore")
 
 
 class SmoothErraticClusterer(BaseClusterer):
@@ -21,12 +22,14 @@ class SmoothErraticClusterer(BaseClusterer):
         "capability:unequal_length": True,
     }
 
-    def __init__(self, w=config.MIN_LENGTH, n_jobs=-1):
+    def __init__(self, w=config.MIN_LENGTH, n_jobs=-1):  # type: ignore
         self.w = w
         self.n_jobs = n_jobs
 
         super().__init__()
 
+    # For each invalid by its length series find the most similar labeled by cluster 
+    # valid series using WDTW distance metric and assign the same label
     def _wdtw_matching(self, item):
         X = (
             self.X_valid_temp[["labels"]]
@@ -52,22 +55,27 @@ class SmoothErraticClusterer(BaseClusterer):
     def _clustering(self, n: int, init: int):
         model = KMeans(n_clusters=n, n_init=init)
         labels = model.fit_predict(self.X_valid_temp_features_array)
-        sil_score = silhouette_score(self.X_valid_temp_features_array, labels)
+        try:
+            sil_score = silhouette_score(self.X_valid_temp_features_array, labels)
+        except:
+            sil_score = 1
         return [labels, sil_score, model.inertia_]
 
+    # For each number of clusters calculate the average critical metrics for 100 iterations.
+    # Score metric is the core one - used as a weighted sum of metrics to further 
+    # number of clusters ranking. The higher the score the better the number of clusters is.
     def _statistics_per_n_clusters(self, n: int):
         temp = Parallel(n_jobs=self.n_jobs)(
             delayed(self._clustering)(n, 25) for _ in range(100)
         )
-
         aris = np.array(
             [
                 adjusted_rand_score(x, y)
                 for x, y in combinations([x[0] for x in temp], 2)  # type: ignore
             ]
         )
-        sil_scores = np.array([x[1] for x in temp])  # type: ignore 
-        inertias = np.array([x[2] for x in temp]) # type: ignore
+        sil_scores = np.array([x[1] for x in temp])  # type: ignore
+        inertias = np.array([x[2] for x in temp])  # type: ignore
 
         return (
             pd.Series(
@@ -116,13 +124,18 @@ class SmoothErraticClusterer(BaseClusterer):
             )
         )
 
-        self.X_invalid_temp = (
-            X.loc[self.invalid_ids]
-            .groupby(self.items.names)
-            .apply(lambda x: x.values.tolist())
-            .rename(self.column)
-            .to_frame()
-        )
+        if not self.invalid_ids.empty:
+            self.X_invalid_temp = (
+                X.loc[self.invalid_ids]
+                .groupby(self.items.names)
+                .apply(lambda x: x.values.tolist())
+                .rename(self.column)
+                .to_frame()
+            )
+        else:
+            self.X_invalid_temp = pd.DataFrame(
+                columns=[self.column], index=pd.Index([], name=self.items.names[0])
+            )
 
         n = self.X_valid_temp.shape[0]
         self.metrics = pd.concat(
@@ -130,16 +143,20 @@ class SmoothErraticClusterer(BaseClusterer):
                 self._statistics_per_n_clusters(i) if i else pd.DataFrame()
                 for i in range(int(n**0.5 / 2), int(n**0.5) + 1)
             ]
-        )
+        ).sort_values("score", ascending=False)
         self.n_clusters = self.metrics["score"].idxmax()
-
         self.X_valid_temp["labels"] = self._clustering(self.n_clusters, 1000)[0]  # type: ignore
 
-        temp = pd.concat(
-            Parallel(n_jobs=self.n_jobs)(
-                delayed(self._wdtw_matching)(item) for item in self.invalid_ids
+        if not self.invalid_ids.empty:
+            temp = pd.concat(
+                Parallel(n_jobs=self.n_jobs)(
+                    delayed(self._wdtw_matching)(item) for item in self.invalid_ids
+                )
             )
-        )
+        else:
+            temp = pd.DataFrame(
+                columns=["labels"], index=pd.Index([], name=self.items.names[0])
+            )
 
         self.labels = pd.concat(
             [
@@ -147,7 +164,7 @@ class SmoothErraticClusterer(BaseClusterer):
                 self.X_invalid_temp.join(temp)["labels"],
             ]
         ).to_dict()
-        self.labels = {int(k): int(v) for k, v in self.labels.items()}
+        self.labels = {int(k): int(v) for k, v in self.labels.items()}  #  type: ignore
 
         del (
             self.X_valid_temp,
@@ -155,7 +172,90 @@ class SmoothErraticClusterer(BaseClusterer):
             self.X_valid_temp_features_array,
             self.X_invalid_temp,
         )
+        return self.items
 
+    def _predict(self, X, y=None):
+        return np.array([self.labels.get(x) for x in self.items])
+
+
+class IntermittentLumpyClusterer(BaseClusterer):
+    _tags = {
+        "X_inner_mtype": ["pd-multiindex", "pd_multiindex_hier"],
+        "capability:unequal_length": True,
+    }
+
+    def __init__(self, w=config.SEASONAL_PERIOD, n_jobs=-1):  # type: ignore
+        self.w = w
+        self.n_jobs = n_jobs
+
+        super().__init__()
+
+    def _clustering(self, n: int, init: int):
+        model = KMeans(n_clusters=n, n_init=init)
+        labels = model.fit_predict(self.temp)
+        try:
+            sil_score = silhouette_score(self.temp, labels)
+        except:
+            sil_score = 1
+        return [labels, sil_score, model.inertia_]
+
+    def _statistics_per_n_clusters(self, n: int):
+        temp = Parallel(n_jobs=self.n_jobs)(
+            delayed(self._clustering)(n, 25) for _ in range(100)
+        )
+        aris = np.array(
+            [
+                adjusted_rand_score(x, y)
+                for x, y in combinations([x[0] for x in temp], 2)  # type: ignore
+            ]
+        )
+        sil_scores = np.array([x[1] for x in temp])  # type: ignore
+        inertias = np.array([x[2] for x in temp])  # type: ignore
+
+        return (
+            pd.Series(
+                {
+                    "avg_sil_score": sil_scores.mean(),
+                    "avg_ari": aris.mean(),
+                    "std_ari": aris.std(ddof=1),
+                    "std_inertia": inertias.std(ddof=1),
+                    "score": (
+                        aris.mean()
+                        - aris.std(ddof=1)
+                        + 0.5 * sil_scores.mean()
+                        - 0.01 * inertias.std(ddof=1)
+                    ),
+                }
+            )
+            .rename(n)
+            .to_frame()
+            .T
+        )
+
+    def _fit(self, X, y=None):
+        self.items, self.column = X.index.droplevel(-1).unique(), X.columns[0]
+        self.X = (
+            X.groupby(self.items.names)
+            .apply(lambda x: catch22_custom(x.values.flatten(), w=self.w))
+            .rename(self.column)
+            .to_frame()
+        )
+        self.temp = np.vstack(self.X[self.column].to_list())
+
+        n = self.X.shape[0]
+        self.metrics = pd.concat(
+            [
+                self._statistics_per_n_clusters(i) if i else pd.DataFrame()
+                for i in range(int(n**0.5 / 2), int(n**0.5) + 1)
+            ]
+        ).sort_values("score", ascending=False)
+        self.n_clusters = self.metrics["score"].idxmax()
+        self.X["labels"] = self._clustering(self.n_clusters, 1000)[0]  # type: ignore
+
+        self.labels = self.X["labels"].to_dict()
+        self.labels = {int(k): int(v) for k, v in self.labels.items()}
+
+        del self.X, self.temp
         return self.items
 
     def _predict(self, X, y=None):
