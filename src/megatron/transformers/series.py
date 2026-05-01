@@ -1,16 +1,15 @@
 import numpy as np
 import pandas as pd
-import scipy.stats as sp
 import ruptures as rpt
+import scipy.stats as sp
 from holidays import country_holidays
-from pyod.models.iforest import IForest
-
-from sktime.transformations.base import BaseTransformer
-from sktime.transformations.series.holiday import HolidayFeatures
-from sktime.transformations.series.func_transform import FunctionTransformer
-from sktime.transformations.series.date import DateTimeFeatures
-
 from joblib import Parallel, delayed
+from pyod.models.iforest import IForest
+from sktime.transformations.base import BaseTransformer
+from sktime.transformations.series.date import DateTimeFeatures
+from sktime.transformations.series.func_transform import FunctionTransformer
+from sktime.transformations.series.holiday import HolidayFeatures
+
 import megatron.config as config
 
 
@@ -118,7 +117,12 @@ class OutlierDetector(BaseTransformer):
     }
 
     def __init__(
-        self, demand: str, exog_column=None, truncate=False, seed=config.SEED, n_jobs=-1  # type: ignore
+        self,
+        demand: str,
+        exog_column=None,
+        truncate=False,
+        seed=config.SEED,  # type: ignore
+        n_jobs=-1,
     ):
         self.demand = demand
         self.exog_column = exog_column
@@ -169,7 +173,8 @@ class OutlierDetector(BaseTransformer):
         )
         temp = pd.DataFrame(
             index=pd.Index(
-                pd.date_range(config.MIN_DATE, config.MAX_DATE), name=X.index.names[-1]  # type: ignore
+                pd.date_range(config.MIN_DATE, config.MAX_DATE),  # type: ignore
+                name=X.index.names[-1],
             )
         )
         temp = ~hf.fit_transform(temp).astype(bool)  # type: ignore
@@ -198,7 +203,6 @@ class ExogenousDataTransformer(BaseTransformer):
     }
 
     def __init__(self):
-
         super().__init__()
 
     def _wageDateFlag(self, data: pd.DataFrame):

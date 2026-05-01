@@ -1,15 +1,14 @@
 import numpy as np
 import pandas as pd
-
-from plotly.subplots import make_subplots
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
+import megatron.config as config
 from megatron.transformers import (
     ChangePointDetector,
-    PlateauDetector,
     OutlierDetector,
+    PlateauDetector,
 )
-import megatron.config as config
 
 
 # Plots a random series from each demand class in the data
@@ -76,7 +75,6 @@ def seriesPlot(
     seed=config.SEED,  # type: ignore
     line_width=1.5,
 ) -> None:
-
     if data.index.nlevels > 1:
         np.random.seed(seed)
         index = np.random.choice(
@@ -217,7 +215,6 @@ def forecastedSeriesPlot(
     seed=config.SEED,  # type: ignore
     line_width=1.5,
 ) -> None:
-
     value = data.columns[0]
     np.random.seed(seed)
     index = np.random.choice(

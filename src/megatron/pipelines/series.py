@@ -1,26 +1,26 @@
+from pathlib import Path
+
 import pandas as pd
+from joblib import cpu_count, dump, load
 from sktime.forecasting.base import BaseForecaster, ForecastingHorizon
 
-from megatron.transformers import (
-    PlateauDetector,
-    ChangePointDetector,
-    OutlierDetector,
-    ExogenousDataTransformer,
-    Mapper,
-    DemandClassifier,
-)
+import megatron.config as config
 from megatron.clusterers import (
-    SmoothErraticClusterer,
     IntermittentLumpyClusterer,
+    SmoothErraticClusterer,
 )
 from megatron.forecasters import CommonForecaster
-import megatron.config as config
+from megatron.transformers import (
+    ChangePointDetector,
+    DemandClassifier,
+    ExogenousDataTransformer,
+    Mapper,
+    OutlierDetector,
+    PlateauDetector,
+)
 
-from pathlib import Path
-from joblib import dump, load
 
-
-# The full pipeline with data transformation, clustering and forecasting stages 
+# The full pipeline with data transformation, clustering and forecasting stages
 # which depends on detected demand class
 class CommonPipeline(BaseForecaster):
     _tags = {
@@ -115,7 +115,10 @@ class CommonPipeline(BaseForecaster):
 
         # forecasting
         self.forecaster = CommonForecaster(
-            dir_path=self.dir_path, value=self.value, demand=self.demand
+            dir_path=self.dir_path,
+            value=self.value,
+            demand=self.demand,
+            n_jobs=cpu_count(),
         )
         self.forecaster.fit(y=y, X=X, fh=fh)
 
@@ -141,7 +144,7 @@ class CommonPipeline(BaseForecaster):
         return self.forecaster.predict(X=X, fh=fh).droplevel(0)  # type: ignore
 
 
-# The start point of the whole pipeline which detects demand class per series 
+# The start point of the whole pipeline which detects demand class per series
 # and then split the data into subsets with corresponding pipeline to fit
 class E2EForecaster(BaseForecaster):
     _tags = {
@@ -152,7 +155,7 @@ class E2EForecaster(BaseForecaster):
         "capability:missing_values": True,
     }
 
-    def __init__(self, dir_path=Path.cwd().parent / "models"):
+    def __init__(self, dir_path: Path):
         self.dir_path = dir_path
         Path.mkdir(self.dir_path, exist_ok=True)
         self.models = {}
@@ -163,7 +166,9 @@ class E2EForecaster(BaseForecaster):
         self.value, self.index = y.columns[0], y.droplevel(-1).index.names
         if fh is not None:
             fh = ForecastingHorizon(
-                values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"  # type: ignore
+                values=[*range(1, config.FH_SIZE + 1)],  # type: ignore
+                is_relative=True,
+                freq="D",
             )
 
         y = y.sort_index()
@@ -199,7 +204,9 @@ class E2EForecaster(BaseForecaster):
     def _predict(self, fh, X=None):
         if fh is not None:
             fh = ForecastingHorizon(
-                values=[*range(1, config.FH_SIZE + 1)], is_relative=True, freq="D"  # type: ignore
+                values=[*range(1, config.FH_SIZE + 1)],  # type: ignore
+                is_relative=True,
+                freq="D",
             )
 
         if X is not None:

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start"><img src="https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white" alt="Python"></a>
+  <a href="#quick-start"><img src="https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white" alt="Python"></a>
   <a href="#architecture"><img src="https://img.shields.io/badge/package-megatron-F28C28" alt="Package"></a>
   <a href="#tests"><img src="https://img.shields.io/badge/coverage-88%25-2EA043" alt="Coverage"></a>
 </p>
@@ -41,20 +41,25 @@ It was originally intended to take part in <a href="https://www.kaggle.com/compe
 
 ### Installation
 
-Recommended from project metadata:
+Workflows are managed with [Hatch](https://hatch.pypa.io/). Install it once globally:
 
 ```bash
-python3.13 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -e ".[dev,test]"
+pipx install hatch
 ```
 
-This installs:
+Hatch creates and reuses isolated environments per task on demand &mdash; no manual `.venv` activation needed. The first invocation of any `hatch run ...` command resolves runtime dependencies from `pyproject.toml` and installs the matching env (`default`, `test`, `lint`, or `notebook`).
 
-- runtime dependencies from `pyproject.toml`;
-- development tools such as `ruff`, `black`, etc.;
-- test tools &mdash; `pytest` and `pytest-cov`.
+Supported Python versions: **3.13**:
+
+```bash
+hatch python install 3.13
+```
+
+Optionally enable git pre-commit hooks (auto-format, lint, strip notebook outputs):
+
+```bash
+hatch run precommit:install
+```
 
 ### Data setup
 
@@ -62,17 +67,17 @@ Place the expected raw CSV files from <a href="https://www.kaggle.com/competitio
 
 ### Run
 
-Using a Makefile:
+End-to-end pipeline:
 
 ```bash
-make fit-all
+hatch run fit-all
 ```
 
 Stepwise equivalent:
 
 ```bash
-python scripts/process_raw_data.py   # same as make process-data
-python scripts/train_and_forecast.py # same as make train-forecast
+hatch run process    # raw CSV -> processed parquet
+hatch run forecast   # processed parquet -> models + submission
 ```
 
 <div align="justify">
@@ -91,13 +96,32 @@ The test suite is split into three layers:
 - integration &mdash; checks how package components work together;
 - data_quality &mdash; validates processed dataset characteristics.
 
-Using a Makefile:
+```bash
+hatch run test:fast          # unit + integration with coverage
+hatch run test:data-quality  # data-quality checks without coverage
+hatch run test:all           # everything
+
+hatch run test:unit          # unit only
+hatch run test:integration   # integration only
+hatch run test:cov-html      # coverage as a browseable HTML report
+```
+
+Code style:
 
 ```bash
-make test      # run unit and integration tests with code coverage
-make test-data # run data-quality checks without coverage
-make test-all
+hatch run lint:check  # ruff format --check + ruff check, report only
+hatch run lint:fmt    # ruff format + ruff check --fix, write changes
 ```
+
+### Notebooks
+
+Three exploratory notebooks live under `notebooks/`. To run them, register the Hatch `notebook` env as a Jupyter kernel once:
+
+```bash
+hatch run notebook:register-kernel
+```
+
+Then in VS Code (or Jupyter Lab) select **kernel (Python 3.13.11)** as the notebook's kernel.
 
 ## Architecture
 
@@ -133,8 +157,7 @@ The common pipeline follows two main stages &mdash; convert raw retail data into
 │   ├── unit_test.py
 │   ├── integration_test.py
 │   └── data_quality_test.py
-├── Makefile
-└── pyproject.toml   
+└── pyproject.toml
 ```
 
 ## Pleasant notes

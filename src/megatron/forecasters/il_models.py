@@ -1,47 +1,45 @@
 import numpy as np
 import pandas as pd
 from feature_engine.selection import SmartCorrelatedSelection
-
-from optuna.samplers import TPESampler
-from optuna.distributions import (
-    IntDistribution,
-    FloatDistribution,
-    CategoricalDistribution,
-)
-
 from lightgbm import LGBMRegressor
-from sklearn.linear_model import LogisticRegression, ElasticNet
+from optuna.distributions import (
+    CategoricalDistribution,
+    FloatDistribution,
+    IntDistribution,
+)
+from optuna.samplers import TPESampler
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.linear_model import ElasticNet, LogisticRegression
 from sklearn.preprocessing import TargetEncoder
-
-from sktime.forecasting.model_selection import ForecastingOptunaSearchCV
-from sktime.forecasting.compose import MultiplexForecaster
-from sktime.transformations.series.summarize import WindowSummarizer
 from sktime.forecasting.base import BaseForecaster
+from sktime.forecasting.compose import MultiplexForecaster
 from sktime.forecasting.croston import Croston
+from sktime.forecasting.model_selection import ForecastingOptunaSearchCV
 from sktime.forecasting.statsforecast import StatsForecastADIDA
 from sktime.forecasting.tsb import TSB
+from sktime.transformations.series.summarize import WindowSummarizer
 
+import megatron.config as config
+from megatron.forecasters.se_models import cv, scoring
 from megatron.transformers.additional import (
     b_mad,
     b_median,
-    c_occ_last,
-    c_occ_rate,
-    c_occ_count,
     c_non_occ_head,
     c_non_occ_tail,
+    c_occ_count,
+    c_occ_last,
+    c_occ_rate,
     r_pos_last,
     r_pos_mean,
     r_pos_std,
     r_pos_sum,
 )
-from megatron.forecasters.se_models import scoring, cv
-import megatron.config as config
 
 
 # Model class that combines two separate models: a classifier to predict the demand
-# occurence probability and a regressor to predict the magnitude of its positive demand.
-# The final prediction is the product of the occurence probability and the demand magnitude
+# occurrence probability and a regressor to predict the magnitude of its positive
+# demand. The final prediction is the product of the occurrence probability and the
+# demand magnitude.
 class HurdleModel(BaseEstimator, RegressorMixin):
     def __init__(self, classifier, regressor):
         self.classifier = classifier
@@ -64,7 +62,9 @@ class HurdleModel(BaseEstimator, RegressorMixin):
 
         if self.cat_features:
             self.encoder = TargetEncoder(
-                smooth=1, random_state=config.SEED, target_type="continuous"  # type: ignore
+                smooth=1,
+                random_state=config.SEED,  # type: ignore
+                target_type="continuous",
             )
             X[self.cat_features] = self.encoder.fit_transform(X[self.cat_features], y)
 

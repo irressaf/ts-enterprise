@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import scipy.stats as sp
-
 from sktime.transformations.base import BaseTransformer
 
 
@@ -39,7 +38,7 @@ class Mapper(BaseTransformer):
         return X.join(temp).reset_index(self.index[-1:]).set_index(self.index)
 
 
-# The start processings to process and filter input raw data before forecssting
+# The start processing to filter input raw data before forecasting
 # pipeline stages
 class InitialPreprocessing:
     def __init__(self, w: int):

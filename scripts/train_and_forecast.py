@@ -1,6 +1,8 @@
-import pandas as pd
 from pathlib import Path
 from time import perf_counter
+
+import pandas as pd
+
 import megatron.config as config
 
 
@@ -44,7 +46,7 @@ config.set_config(
     FH_SIZE=X_exog_test.index.get_level_values(-1).nunique(),
 )
 
-from megatron.pipelines import E2EForecaster
+from megatron.pipelines import E2EForecaster  # noqa: E402
 
 # Transactions forecast
 X_temp_train = X_exog_train.groupby(["store_nbr", "date"]).sum().join(oil).join(stores)

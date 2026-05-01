@@ -1,17 +1,17 @@
+import warnings
+from itertools import combinations
+
 import numpy as np
 import pandas as pd
-from itertools import combinations
+from joblib import Parallel, delayed
 from pycatch22 import catch22_all
-from megatron.transformers.additional import catch22_custom
-
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score, adjusted_rand_score
+from sklearn.metrics import adjusted_rand_score, silhouette_score
 from sktime.clustering.base import BaseClusterer
 from sktime.distances import pairwise_distance
 
-from joblib import Parallel, delayed
 import megatron.config as config
-import warnings
+from megatron.transformers.additional import catch22_custom
 
 warnings.filterwarnings("ignore")
 
@@ -28,7 +28,7 @@ class SmoothErraticClusterer(BaseClusterer):
 
         super().__init__()
 
-    # For each invalid by its length series find the most similar labeled by cluster 
+    # For each invalid by its length series find the most similar labeled by cluster
     # valid series using WDTW distance metric and assign the same label
     def _wdtw_matching(self, item):
         X = (
@@ -57,13 +57,14 @@ class SmoothErraticClusterer(BaseClusterer):
         labels = model.fit_predict(self.X_valid_temp_features_array)
         try:
             sil_score = silhouette_score(self.X_valid_temp_features_array, labels)
-        except:
+        except ValueError:
             sil_score = 1
         return [labels, sil_score, model.inertia_]
 
-    # For each number of clusters calculate the average critical metrics for 100 iterations.
-    # Score metric is the core one - used as a weighted sum of metrics to further 
-    # number of clusters ranking. The higher the score the better the number of clusters is.
+    # For each number of clusters calculate the average critical metrics for 100
+    # iterations. Score metric is the core one - used as a weighted sum of metrics
+    # to further number of clusters ranking. The higher the score the better the number
+    # of clusters is.
     def _statistics_per_n_clusters(self, n: int):
         temp = Parallel(n_jobs=self.n_jobs)(
             delayed(self._clustering)(n, 25) for _ in range(100)
@@ -195,7 +196,7 @@ class IntermittentLumpyClusterer(BaseClusterer):
         labels = model.fit_predict(self.temp)
         try:
             sil_score = silhouette_score(self.temp, labels)
-        except:
+        except ValueError:
             sil_score = 1
         return [labels, sil_score, model.inertia_]
 
