@@ -1,5 +1,6 @@
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 import pytest
 
 pytestmark = pytest.mark.data_quality
@@ -27,7 +28,7 @@ def test_index(processed_data):
 
             if data.index.nlevels > 1:
                 temp = data.groupby(index[:-1]).apply(
-                    lambda x: x.droplevel(index[:-1]).index.inferred_freq
+                    lambda x, idx=index: x.droplevel(idx[:-1]).index.inferred_freq
                 )
                 assert all(temp == "D")
             else:

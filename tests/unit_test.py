@@ -1,7 +1,9 @@
-import pandas as pd
 from pathlib import Path
-import megatron.config as config
+
+import pandas as pd
 import pytest
+
+import megatron.config as config
 
 pytestmark = pytest.mark.unit
 
@@ -18,10 +20,10 @@ def test_config():
     )
 
 
-from megatron.transformers import (
+from megatron.transformers import (  # noqa: E402
+    ChangePointDetector,
     DemandClassifier,
     PlateauDetector,
-    ChangePointDetector,
 )
 
 
@@ -42,17 +44,29 @@ def test_demand_classifier(synthetic_data):
 
 def test_plateau_detector(synthetic_data):
     data = synthetic_data.loc["erratic"].droplevel([0, 1])
-    temp = PlateauDetector(w=2 * config.SEASONAL_PERIOD, value=0, n_jobs=1).fit_transform(data)  # type: ignore
+    temp = PlateauDetector(
+        w=2 * config.SEASONAL_PERIOD,
+        value=0,
+        n_jobs=1,  # type: ignore
+    ).fit_transform(data)
     assert temp.size > 0  # type: ignore
 
-    temp = PlateauDetector(w=5 * config.SEASONAL_PERIOD, value=0, n_jobs=1).fit_transform(data)  # type: ignore
+    temp = PlateauDetector(
+        w=5 * config.SEASONAL_PERIOD,
+        value=0,
+        n_jobs=1,  # type: ignore
+    ).fit_transform(data)  # type: ignore
     assert temp.size == 0  # type: ignore
 
     temp = PlateauDetector(w=2 * config.SEASONAL_PERIOD, n_jobs=1).fit_transform(data)  # type: ignore
     assert temp.size == 0  # type: ignore
 
     data = synthetic_data.loc["smooth"].droplevel([0, 1])
-    temp = PlateauDetector(w=2 * config.SEASONAL_PERIOD, value=0, n_jobs=1).fit_transform(data)  # type: ignore
+    temp = PlateauDetector(
+        w=2 * config.SEASONAL_PERIOD,
+        value=0,
+        n_jobs=1,  # type: ignore
+    ).fit_transform(data)  # type: ignore
     assert temp.size == 0  # type: ignore
 
 
@@ -61,6 +75,8 @@ def test_change_point_detector(synthetic_data):
     temp = ChangePointDetector(w=config.MIN_LENGTH, n_jobs=1).fit_transform(data)  # type: ignore
     assert temp > pd.to_datetime("2025-10-29")  # type: ignore
 
-    data = synthetic_data.loc["erratic"].droplevel([0, 1]).tail(2 * config.MIN_LENGTH - 1)  # type: ignore
+    data = (
+        synthetic_data.loc["erratic"].droplevel([0, 1]).tail(2 * config.MIN_LENGTH - 1)  # type: ignore
+    )  # type: ignore
     temp = ChangePointDetector(w=config.MIN_LENGTH, n_jobs=1).fit_transform(data)  # type: ignore
     assert temp == data.index.min()[-1]

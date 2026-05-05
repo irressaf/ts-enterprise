@@ -1,6 +1,8 @@
-import pandas as pd
 from pathlib import Path
 from time import perf_counter
+
+import pandas as pd
+
 import megatron.config as config
 
 
@@ -19,6 +21,7 @@ def formatter(seconds: float) -> str:
 def logs(name, start):
     text = f"{name} passed in {formatter(perf_counter() - start)}"
     print(f"\033[92m{text}\033[0m")
+
 
 start = perf_counter()  # timer
 
@@ -43,7 +46,11 @@ config.set_config(
     FH_SIZE=(max_date - test["date"].min()).days + 1,
 )
 
-from megatron.transformers import Mapper, InitialPreprocessing, PlateauDetector
+from megatron.transformers import (  # noqa: E402
+    InitialPreprocessing,
+    Mapper,
+    PlateauDetector,
+)
 
 # Oil data
 oil = (
@@ -88,7 +95,8 @@ transactions = processing.drop_zero_series(transactions)
 transactions = processing.trim_leading_zeros(transactions)
 transactions = processing.drop_trailing_zero_window_series(transactions)
 transactions = PlateauDetector(
-    w=2 * config.SEASONAL_PERIOD, truncate=True  # type: ignore
+    w=2 * config.SEASONAL_PERIOD,  # type: ignore
+    truncate=True,
 ).fit_transform(transactions)
 
 logs("Raw transactions data loading and processing -", stage)

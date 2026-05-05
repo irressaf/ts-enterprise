@@ -1,11 +1,11 @@
+import warnings
+from pathlib import Path
+
 import pandas as pd
+from joblib import Parallel, delayed, dump, load
 from sklearn.base import clone
 from sktime.forecasting.base import BaseForecaster
-
-from pathlib import Path
-from joblib import Parallel, delayed, dump, load, cpu_count
 from tqdm_joblib import ParallelPbar
-import warnings
 
 from .il_models import il_complex_global, il_simplex_global, il_simplex_local
 from .se_models import scoring, se_complex_global, se_simplex_global, se_simplex_local
@@ -13,9 +13,9 @@ from .se_models import scoring, se_complex_global, se_simplex_global, se_simplex
 warnings.filterwarnings("ignore")
 
 
-# Forecasting structure with ability to select the forecasting model based on the demand 
-# class and cluster size. The models are fitted separately and simultaneously for each 
-# cluster or series and saved on disk to avoid unexpected fitting, respective long time 
+# Forecasting structure with ability to select the forecasting model based on the demand
+# class and cluster size. The models are fitted separately and simultaneously for each
+# cluster or series and saved on disk to avoid unexpected fitting, respective long time
 # consuming and sudden data erases.
 class CommonForecaster(BaseForecaster):
     _tags = {
@@ -25,7 +25,7 @@ class CommonForecaster(BaseForecaster):
         "scitype:transform-output": "Dataframe",
     }
 
-    def __init__(self, dir_path: Path, value: str, demand: str, n_jobs=cpu_count()):
+    def __init__(self, dir_path: Path, value: str, demand: str, n_jobs: int):
         self.dir_path = dir_path
         self.value = value
         self.demand = demand
@@ -48,7 +48,10 @@ class CommonForecaster(BaseForecaster):
         super().__init__()
 
     def _fit_per_instance(self, index, fh):
-        import warnings, cmdstanpy, logging
+        import logging
+        import warnings
+
+        import cmdstanpy
         from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
         logging.getLogger("statsmodels").setLevel(logging.ERROR)
@@ -90,12 +93,14 @@ class CommonForecaster(BaseForecaster):
                 path,
             )
             print(
-                f"{path.relative_to(self.dir_path)} best {scoring.name} score: {round(model.best_score_, 3)}"
+                f"""{path.relative_to(self.dir_path)} best {scoring.name}
+                score: {round(model.best_score_, 3)}"""
             )
         else:
             score = load(path)["score"]
             print(
-                f"{path.relative_to(self.dir_path)} best {scoring.name} score: {round(score, 3)}"
+                f"""{path.relative_to(self.dir_path)} best {scoring.name}
+                score: {round(score, 3)}"""
             )
         return index, path
 

@@ -1,34 +1,33 @@
-import numpy as np
+import warnings
 from itertools import product
-from optuna.samplers import TPESampler
-from optuna.distributions import (
-    IntDistribution,
-    FloatDistribution,
-    CategoricalDistribution,
-)
 
-from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.preprocessing import StandardScaler, TargetEncoder
-from sklearn.metrics import root_mean_squared_log_error
-
+import numpy as np
 from lightgbm import LGBMRegressor
+from optuna.distributions import (
+    CategoricalDistribution,
+    FloatDistribution,
+    IntDistribution,
+)
+from optuna.samplers import TPESampler
+from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.linear_model import ElasticNet
+from sklearn.metrics import root_mean_squared_log_error
+from sklearn.preprocessing import StandardScaler, TargetEncoder
+from sktime.forecasting.base import BaseForecaster
+from sktime.forecasting.compose import (
+    FallbackForecaster,
+    MultiplexForecaster,
+    make_reduction,
+)
 from sktime.forecasting.fbprophet import Prophet
+from sktime.forecasting.model_selection import ForecastingOptunaSearchCV
 from sktime.forecasting.sarimax import SARIMAX
 from sktime.forecasting.statsforecast import StatsForecastAutoTheta
 from sktime.performance_metrics.forecasting import make_forecasting_scorer
 from sktime.split import ExpandingGreedySplitter
-from sktime.forecasting.model_selection import ForecastingOptunaSearchCV
-from sktime.forecasting.compose import (
-    make_reduction,
-    MultiplexForecaster,
-    FallbackForecaster,
-)
 from sktime.transformations.series.summarize import WindowSummarizer
-from sktime.forecasting.base import BaseForecaster
 
 import megatron.config as config
-import warnings
 
 warnings.filterwarnings("ignore")
 
@@ -69,7 +68,9 @@ class GlobalModelWrapper(BaseEstimator, RegressorMixin):
             self.c_features = list(s[s.between(3, 31)].index)
 
             self.encoder = TargetEncoder(
-                smooth=1, random_state=config.SEED, target_type="continuous"  # type: ignore
+                smooth=1,
+                random_state=config.SEED,  # type: ignore
+                target_type="continuous",
             )
             X[self.c_features] = self.encoder.fit_transform(
                 X[self.c_features], X["target"]
@@ -200,8 +201,8 @@ se_simplex_global = ForecastingOptunaSearchCV(
 )
 
 
-# Wrapper for local (per series) forecasting models with ability to add target encoding and
-# sample weights as tuning parameters
+# Wrapper for local (per series) forecasting models with ability to add target
+# encoding and sample weights as tuning parameters
 class LocalModelWrapper(BaseForecaster):
     def __init__(self, estimator, whether_to_use_X=False, drop_holiday_flag=False):
         self.estimator = estimator
@@ -252,9 +253,9 @@ class LocalModelWrapper(BaseForecaster):
         ).clip(lower=0)
 
 
-# Local forecasting structure with best of three constant models selection based 
-# on the validation performance
-# The fallback model also considers if default one fails during fit or predict
+# Local forecasting structure with best of three constant models selection based
+# on the validation performance. The fallback model also considers if default one
+# fails during fit or predict.
 se_simplex_local = ForecastingOptunaSearchCV(
     forecaster=MultiplexForecaster(
         forecasters=[

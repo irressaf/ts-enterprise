@@ -1,7 +1,9 @@
-import pandas as pd
 from pathlib import Path
-import megatron.config as config
+
+import pandas as pd
 import pytest
+
+import megatron.config as config
 
 pytestmark = pytest.mark.integration
 
@@ -19,14 +21,14 @@ def test_config():
     )
 
 
-from megatron.transformers import (
-    Mapper,
-    PlateauDetector,
+from megatron.clusterers import IntermittentLumpyClusterer, SmoothErraticClusterer  # noqa: E402, I001
+from megatron.transformers import (  # noqa: E402
     ChangePointDetector,
-    OutlierDetector,
     ExogenousDataTransformer,
+    Mapper,
+    OutlierDetector,
+    PlateauDetector,
 )
-from megatron.clusterers import IntermittentLumpyClusterer, SmoothErraticClusterer
 
 
 @pytest.fixture
@@ -51,7 +53,12 @@ def test_mapper(sliced_train_data):
 
 def test_transformers(sliced_train_data):
     data = sliced_train_data.loc["smooth"]
-    model = PlateauDetector(w=2 * config.SEASONAL_PERIOD, value=0, truncate=True, n_jobs=1)  # type: ignore
+    model = PlateauDetector(
+        w=2 * config.SEASONAL_PERIOD,
+        value=0,
+        truncate=True,
+        n_jobs=1,  # type: ignore
+    )  # type: ignore
     temp = model.fit_transform(data)
     assert not temp.empty  # type: ignore
     assert model is not None

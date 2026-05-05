@@ -1,12 +1,15 @@
-import numpy as np
-import pandas as pd
+import os
+import random
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
-import os, random
 
-# Global configuration object with default values avaliable for the entire project while running session
-# Available to update at any time using the set_config function
+import numpy as np
+import pandas as pd
+
+
+# Global configuration object with default values available for the entire project
+# while running session. Available to update at any time using the set_config function.
 @dataclass
 class Config:
     SEASONAL_PERIOD: int = 1
